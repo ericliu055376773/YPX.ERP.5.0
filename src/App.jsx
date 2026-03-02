@@ -4,8 +4,8 @@ import {
   LogOut, CheckCircle2, AlertCircle, Package, 
   Store, ShieldAlert, PlusCircle, Settings, 
   Database, Users, History, Layers, Calendar,
-  BarChart2, Filter, Search, ChevronDown, ChevronUp, Camera, Download, GripVertical, Menu,
-  Edit2, Trash2, X, Save, Eye, EyeOff
+  BarChart2, Filter, Search, ChevronDown, Camera, Download, GripVertical, Menu,
+  Edit2, Trash2, Save, Eye, EyeOff, ScanLine, MapPin, MapPinOff, ShieldCheck, X
 } from 'lucide-react';
 
 // --- Firebase Imports ---
@@ -69,7 +69,9 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [inventoryData, setInventoryData] = useState({}); 
   const [ordersData, setOrdersData] = useState([]);
-  const [systemConfig, setSystemConfig] = useState({ holidayMode: 'auto' });
+  
+  const [systemConfig, setSystemConfig] = useState({ holidayMode: 'auto', isGPSRequired: false });
+  const [systemOptions, setSystemOptions] = useState({ categories: [], units: [] });
 
   const [user, setUser] = useState(null); 
   const [authMode, setAuthMode] = useState('login'); 
@@ -85,10 +87,13 @@ export default function App() {
   };
 
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-    script.async = true;
-    document.head.appendChild(script);
+    if (!document.getElementById('html2canvas-script')) {
+      const script = document.createElement('script');
+      script.id = 'html2canvas-script';
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      script.async = true;
+      document.head.appendChild(script);
+    }
 
     const initAuth = async () => {
       try { await signInAnonymously(auth); } catch (err) { console.error('Auth Error:', err); }
@@ -117,9 +122,10 @@ export default function App() {
       setProducts(data);
       setIsReady(true);
     });
+    // ⭐ 更新：正確儲存整包 inventoryData (包含 settings 與 hiddenCategories)
     const unsubInventory = onSnapshot(inventoryRef, (snap) => {
       const data = {};
-      snap.docs.forEach(d => { data[d.id] = d.data().settings || {}; });
+      snap.docs.forEach(d => { data[d.id] = d.data(); });
       setInventoryData(data);
     });
     const unsubOrders = onSnapshot(ordersRef, (snap) => {
@@ -127,18 +133,34 @@ export default function App() {
       setOrdersData(data.sort((a, b) => b.timestamp - a.timestamp));
     });
     const unsubSystem = onSnapshot(systemRef, (snap) => {
-      let config = { holidayMode: 'auto' };
+      let config = { holidayMode: 'auto', isGPSRequired: false };
       snap.docs.forEach(d => { 
         if (d.id === 'config') {
           const data = d.data();
           if (data.holidayMode) config.holidayMode = data.holidayMode;
           else if (data.isHolidayMode !== undefined) config.holidayMode = data.isHolidayMode ? 'holiday' : 'weekday';
+          
+          if (data.isGPSRequired !== undefined) config.isGPSRequired = data.isGPSRequired;
         }
       });
       setSystemConfig(config);
     });
 
-    return () => { unsubUsers(); unsubProducts(); unsubInventory(); unsubOrders(); unsubSystem(); };
+    const optionsRef = doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options');
+    const unsubOptions = onSnapshot(optionsRef, (snap) => {
+      if (snap.exists()) {
+        setSystemOptions(snap.data());
+      } else {
+        const initOpts = {
+          categories: ['蔬果類', '肉類', '海鮮與火鍋料'],
+          units: ['顆', '包', '公斤', '盒', '斤', '把']
+        };
+        setDoc(optionsRef, initOpts);
+        setSystemOptions(initOpts);
+      }
+    });
+
+    return () => { unsubUsers(); unsubProducts(); unsubInventory(); unsubOrders(); unsubSystem(); unsubOptions(); };
   }, [fbUser]);
 
   const handleAuth = async (e) => {
@@ -160,7 +182,7 @@ export default function App() {
       if (username === 'admin' || usersDb.some(u => u.username === username)) {
         showToast('帳號已存在', 'error'); return;
       }
-      const newUser = { username, password, role: 'branch', branchName };
+      const newUser = { username, password, role: 'branch', branchName, lat: '', lng: '' };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, username), newUser);
       setUser(newUser);
       showToast('門店註冊成功！');
@@ -200,8 +222,10 @@ export default function App() {
     }
   };
 
+  // ⭐ 更新：正確讀取各門店的庫存配額設定
   const getBranchInventory = (branchUsername) => {
-    const branchSettings = inventoryData[branchUsername] || {};
+    const branchDoc = inventoryData[branchUsername] || {};
+    const branchSettings = branchDoc.settings || {};
     const isHoliday = getEffectiveHolidayMode(systemConfig.holidayMode);
 
     return products.map(product => {
@@ -256,7 +280,6 @@ export default function App() {
           <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 pb-4 relative">
             <div className="bg-slate-900 pt-10 pb-8 px-6 text-center rounded-b-3xl shadow-inner">
               
-              {/* ⭐ 這裡的 src 已經幫您改成 /logo.png 了！ */}
               <div 
                 onClick={handleLogoClick}
                 className="mx-auto bg-[#1a2130] w-24 h-24 rounded-[1.25rem] flex items-center justify-center mb-5 border border-white/20 shadow-xl cursor-pointer hover:bg-[#1f293d] active:scale-95 transition-all p-1.5 overflow-hidden"
@@ -322,9 +345,12 @@ export default function App() {
 
           <main className="flex-1 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+90px)] md:pb-0 relative scroll-smooth w-full">
             {user.role === 'admin' ? (
-              <AdminViews products={products} usersDb={usersDb} inventoryData={inventoryData} ordersData={ordersData} getBranchInventory={getBranchInventory} showToast={showToast} fbUser={fbUser} systemConfig={systemConfig} />
+              // ⭐ 更新 AdminViews 傳遞參數
+              <AdminViews products={products} usersDb={usersDb} inventoryData={inventoryData} ordersData={ordersData} getBranchInventory={getBranchInventory} showToast={showToast} fbUser={fbUser} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
             ) : (
-              <BranchViews user={user} fbUser={fbUser} products={products} inventoryData={inventoryData} ordersData={ordersData} branchInventory={getBranchInventory(user.username)} showToast={showToast} systemConfig={systemConfig} />
+              <LocationGuard user={user} systemConfig={systemConfig} logout={logout}>
+                <BranchViews user={user} fbUser={fbUser} products={products} inventoryData={inventoryData} ordersData={ordersData} branchInventory={getBranchInventory(user.username)} showToast={showToast} systemConfig={systemConfig} db={db} appId={appId} />
+              </LocationGuard>
             )}
           </main>
 
@@ -351,7 +377,117 @@ export default function App() {
 }
 
 // ==========================================
-// 共用元件
+// ⭐ GPS 定位防護元件
+// ==========================================
+function LocationGuard({ user, systemConfig, children, logout }) {
+  const [status, setStatus] = useState('checking'); 
+  const [distance, setDistance] = useState(null);
+
+  useEffect(() => {
+    if (!systemConfig?.isGPSRequired) {
+      setStatus('passed');
+      return;
+    }
+    if (!user.lat || !user.lng) {
+      setStatus('no_coords');
+      return;
+    }
+    setStatus('checking');
+    if (!("geolocation" in navigator)) {
+      setStatus('error');
+      return;
+    }
+    const success = (position) => {
+      const currentLat = position.coords.latitude;
+      const currentLng = position.coords.longitude;
+      const targetLat = parseFloat(user.lat);
+      const targetLng = parseFloat(user.lng);
+
+      const R = 6371e3; 
+      const MathPI = Math.PI;
+      const dLat = (targetLat - currentLat) * MathPI / 180;
+      const dLon = (targetLng - currentLng) * MathPI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(currentLat * MathPI / 180) * Math.cos(targetLat * MathPI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      const dist = Math.round(R * c);
+
+      setDistance(dist);
+
+      if (dist <= 300) { 
+        setStatus('passed');
+      } else {
+        setStatus('failed');
+      }
+    };
+    const error = () => {
+      setStatus('error');
+    };
+    navigator.geolocation.getCurrentPosition(success, error, { enableHighAccuracy: true, timeout: 10000 });
+  }, [systemConfig?.isGPSRequired, user]);
+
+  if (status === 'passed') return <>{children}</>;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-slate-900/95 flex flex-col items-center justify-center p-4 backdrop-blur-md animate-in fade-in">
+      <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm text-center shadow-2xl border border-slate-100">
+        
+        {status === 'checking' && (
+          <>
+            <div className="w-24 h-24 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner relative">
+              <ScanLine className="w-10 h-10 animate-pulse absolute" />
+              <div className="w-full h-full rounded-full border-4 border-blue-200 border-t-blue-500 animate-spin"></div>
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">安全定位掃描中</h2>
+            <p className="text-slate-500 text-sm mb-8 font-medium">總部已啟動門店定位驗證，請在彈出的提示中點擊<strong className="text-blue-600 ml-1">「允許存取位置」</strong>。</p>
+          </>
+        )}
+
+        {status === 'failed' && (
+          <>
+            <div className="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <MapPinOff className="w-12 h-12" />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">不在授權範圍內</h2>
+            <p className="text-slate-600 text-[15px] mb-8 font-medium leading-relaxed">
+              您目前距離門店約 <strong className="text-red-600 text-lg bg-red-50 px-2 py-0.5 rounded-lg">{distance} 公尺</strong>。<br/><span className="text-sm mt-2 block text-slate-400">基於商業機密保護，您必須在店面周圍 300 公尺內才能登入系統。</span>
+            </p>
+          </>
+        )}
+
+        {status === 'error' && (
+          <>
+            <div className="w-24 h-24 bg-orange-50 text-orange-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <AlertCircle className="w-12 h-12" />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">無法取得定位</h2>
+            <p className="text-slate-600 text-sm mb-6 font-medium">請確認您的手機已開啟 GPS，並在瀏覽器設定中「允許」本網頁存取位置資訊。</p>
+            <button onClick={() => window.location.reload()} className="w-full bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-3.5 rounded-xl mb-3 transition-all">重新嘗試</button>
+          </>
+        )}
+
+        {status === 'no_coords' && (
+          <>
+             <div className="w-24 h-24 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+              <MapPin className="w-12 h-12" />
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 mb-2">尚未綁定座標</h2>
+            <p className="text-slate-600 text-sm mb-8 font-medium">系統已開啟 GPS 鎖，但總部尚未在後台設定本店的位置座標，無法進行驗證。請聯絡總管理處。</p>
+          </>
+        )}
+        
+        <button onClick={logout} className="w-full bg-slate-900 hover:bg-slate-800 active:scale-95 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all shadow-md">
+          <LogOut className="w-5 h-5"/> 安全登出
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+// ==========================================
+// 共用元件 (包含截圖預覽 Modal)
 // ==========================================
 function Toast({ message, type }) {
   const isError = type === 'error';
@@ -450,7 +586,7 @@ function StatusBadge({ status }) {
 // ==========================================
 // 總部後台視圖
 // ==========================================
-function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInventory, showToast, fbUser, systemConfig }) {
+function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInventory, showToast, fbUser, systemConfig, systemOptions, db, appId }) {
   const [activeTab, setActiveTab] = useState('products');
   const branches = usersDb.filter(u => u.role === 'branch');
 
@@ -472,9 +608,10 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
              </button>
            ))}
         </div>
-        {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} />}
-        {activeTab === 'quotas' && <AdminQuotaManager branches={branches} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} />}
-        {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} />}
+        {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} systemOptions={systemOptions} db={db} appId={appId} />}
+        {/* ⭐ 更新：將 products 與 inventoryData 傳入 AdminQuotaManager 以支援分類開關功能 */}
+        {activeTab === 'quotas' && <AdminQuotaManager branches={branches} products={products} inventoryData={inventoryData} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} db={db} appId={appId} />}
+        {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'history' && <AdminOrderHistory ordersData={ordersData} branches={branches} showToast={showToast} />}
         {activeTab === 'analytics' && <AdminAnalytics ordersData={ordersData} branches={branches} />}
       </div>
@@ -483,15 +620,15 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
   );
 }
 
-function AdminBranchManager({ branches, showToast, fbUser }) {
+function AdminBranchManager({ branches, showToast, fbUser, db, appId }) {
   const [editId, setEditId] = useState(null);
-  const [editForm, setEditForm] = useState({ branchName: '', password: '' });
+  const [editForm, setEditForm] = useState({ branchName: '', password: '', lat: '', lng: '' });
   const [showPasswords, setShowPasswords] = useState({});
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const startEdit = (b) => {
     setEditId(b.username);
-    setEditForm({ branchName: b.branchName, password: b.password });
+    setEditForm({ branchName: b.branchName, password: b.password, lat: b.lat || '', lng: b.lng || '' });
     setConfirmDeleteId(null);
   };
 
@@ -504,7 +641,9 @@ function AdminBranchManager({ branches, showToast, fbUser }) {
     }
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, editId), {
       branchName: editForm.branchName,
-      password: editForm.password
+      password: editForm.password,
+      lat: editForm.lat,
+      lng: editForm.lng
     });
     showToast('門店資料更新成功！');
     setEditId(null);
@@ -531,7 +670,7 @@ function AdminBranchManager({ branches, showToast, fbUser }) {
     <div className="space-y-4">
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2">
         <Users className="w-5 h-5 text-blue-600" />
-        <h3 className="font-bold text-slate-800">門店帳號與權限管理</h3>
+        <h3 className="font-bold text-slate-800">門店帳號與 GPS 權限管理</h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -548,13 +687,26 @@ function AdminBranchManager({ branches, showToast, fbUser }) {
                     <input type="text" value={editForm.branchName} onChange={e => setEditForm({...editForm, branchName: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold" />
                   </div>
                   <div>
-                    <label className="text-xs font-bold text-slate-500 mb-1 block text-slate-400">登入帳號 (系統唯一碼不可改)</label>
+                    <label className="text-xs font-bold text-slate-500 mb-1 block text-slate-400">登入帳號 (不可改)</label>
                     <input type="text" value={b.username} disabled className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-400 text-[16px] font-bold cursor-not-allowed" />
                   </div>
                   <div>
                     <label className="text-xs font-bold text-slate-500 mb-1 block">登入密碼</label>
                     <input type="text" value={editForm.password} onChange={e => setEditForm({...editForm, password: e.target.value})} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold tracking-wider" />
                   </div>
+                  <div className="pt-2 border-t border-slate-100">
+                    <label className="text-xs font-bold text-blue-600 mb-2 flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> 門店 GPS 座標設定</label>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <input type="text" value={editForm.lat} onChange={e => setEditForm({...editForm, lat: e.target.value.trim()})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-[14px]" placeholder="緯度 (Lat)" />
+                      </div>
+                      <div className="flex-1">
+                        <input type="text" value={editForm.lng} onChange={e => setEditForm({...editForm, lng: e.target.value.trim()})} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-[14px]" placeholder="經度 (Lng)" />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1.5 font-medium">提示：請在 Google Map 上對門店按右鍵，即可複製經緯度 (例如: 23.709, 120.543)。</p>
+                  </div>
+                  
                   <div className="flex gap-2 pt-2">
                     <button onClick={cancelEdit} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">取消</button>
                     <button onClick={saveEdit} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700 transition-colors flex justify-center items-center gap-1"><Save className="w-4 h-4"/> 儲存修改</button>
@@ -588,6 +740,12 @@ function AdminBranchManager({ branches, showToast, fbUser }) {
                         </button>
                       </div>
                     </div>
+                    <div className="flex justify-between items-center text-[15px] pt-1 border-t border-slate-200/60">
+                      <span className="font-bold text-slate-500 flex items-center gap-1"><MapPin className="w-4 h-4"/> 綁定座標</span>
+                      <span className={`font-medium text-[13px] ${b.lat && b.lng ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
+                        {b.lat && b.lng ? `${b.lat}, ${b.lng}` : '尚未設定'}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex gap-2 mt-1">
@@ -613,24 +771,55 @@ function AdminBranchManager({ branches, showToast, fbUser }) {
   );
 }
 
-// ⭐ 商品庫管理：新增了分類及商品的「編輯與刪除」彈窗功能
-function AdminProductManager({ products, showToast, fbUser }) {
+function AdminProductManager({ products, showToast, fbUser, systemOptions, db, appId }) {
+  const [searchTerm, setSearchTerm] = useState(''); 
   const [draggedId, setDraggedId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
 
-  // 用於控制彈出視窗的狀態
   const [editingCategory, setEditingCategory] = useState(null);
   const [deletingCategory, setDeletingCategory] = useState(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [deletingProduct, setDeletingProduct] = useState(null);
 
+  const [newCatInput, setNewCatInput] = useState('');
+  const [newUnitInput, setNewUnitInput] = useState('');
+
+  const handleAddOption = async (type) => {
+    if(!fbUser) return;
+    const val = type === 'categories' ? newCatInput.trim() : newUnitInput.trim();
+    if(!val) return;
+    if((systemOptions[type] || []).includes(val)) {
+      showToast(`「${val}」已經存在選項中！`, 'error');
+      return;
+    }
+    const updatedOptions = { ...systemOptions, [type]: [...(systemOptions[type] || []), val] };
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+    type === 'categories' ? setNewCatInput('') : setNewUnitInput('');
+    showToast(`成功新增${type === 'categories' ? '分類' : '單位'}：${val}`);
+  };
+
+  const handleRemoveOption = async (type, valToRemove) => {
+    if(!fbUser) return;
+    if(!window.confirm(`確定要刪除選項「${valToRemove}」嗎？這不會刪除原本已經使用該選項的商品。`)) return;
+    const updatedOptions = { ...systemOptions, [type]: (systemOptions[type] || []).filter(v => v !== valToRemove) };
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+  };
+
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if(!fbUser) return;
     const formData = new FormData(e.target);
+    const newName = formData.get('name').trim();
+
+    const isDuplicate = products.some(p => p.name === newName);
+    if (isDuplicate) {
+      showToast(`商品「${newName}」已經存在，請勿重複輸入！`, 'error');
+      return; 
+    }
+
     const id = Date.now().toString();
     const newProduct = {
-      id, category: formData.get('category').trim(), name: formData.get('name').trim(),
+      id, category: formData.get('category').trim(), name: newName,
       unit: formData.get('unit').trim(), defaultPar: parseFloat(formData.get('defaultPar')) || 0,
       order: products.length 
     };
@@ -674,7 +863,6 @@ function AdminProductManager({ products, showToast, fbUser }) {
     else { setDraggedId(null); setDragOverId(null); }
   };
 
-  // --- 分類與商品修改刪除邏輯 ---
   const handleSaveCategory = async (e) => {
     e.preventDefault();
     const newName = e.target.newCategoryName.value.trim();
@@ -700,12 +888,20 @@ function AdminProductManager({ products, showToast, fbUser }) {
   const handleSaveProduct = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const newName = formData.get('name').trim();
+
+    const isDuplicate = products.some(p => p.id !== editingProduct.id && p.name === newName);
+    if (isDuplicate) {
+      showToast(`商品「${newName}」已經存在，請更換名稱！`, 'error');
+      return; 
+    }
+
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, editingProduct.id), {
-      name: formData.get('name').trim(),
+      name: newName,
       unit: formData.get('unit').trim(),
       defaultPar: parseFloat(formData.get('defaultPar')) || 0
     });
-    showToast(`商品已更新：${formData.get('name')}`);
+    showToast(`商品已更新：${newName}`);
     setEditingProduct(null);
   };
 
@@ -715,7 +911,9 @@ function AdminProductManager({ products, showToast, fbUser }) {
     setDeletingProduct(null);
   };
 
-  const groupedProducts = products.reduce((groups, product) => {
+  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  
+  const groupedProducts = filteredProducts.reduce((groups, product) => {
     const category = product.category;
     if (!groups[category]) groups[category] = [];
     groups[category].push(product);
@@ -724,7 +922,6 @@ function AdminProductManager({ products, showToast, fbUser }) {
 
   return (
     <div className="space-y-6 relative">
-      {/* --- 全螢幕防呆彈出視窗群 --- */}
       {editingCategory && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 duration-200">
@@ -767,12 +964,21 @@ function AdminProductManager({ products, showToast, fbUser }) {
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">單位</label>
-                  <input required name="unit" defaultValue={editingProduct.unit} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold" />
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">單位 (選單)</label>
+                  <select required name="unit" defaultValue={editingProduct.unit} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold">
+                    <option value="" disabled>請選擇</option>
+                    {(systemOptions.units || []).map(u => <option key={u} value={u}>{u}</option>)}
+                    {!(systemOptions.units || []).includes(editingProduct.unit) && <option value={editingProduct.unit}>{editingProduct.unit}</option>}
+                  </select>
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">預設配額</label>
-                  <input required name="defaultPar" type="number" step="0.5" defaultValue={editingProduct.defaultPar} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold text-blue-600" />
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">預設配額 (0-100)</label>
+                  <select required name="defaultPar" defaultValue={editingProduct.defaultPar} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold text-blue-600">
+                    <option value="0">0</option>
+                    {Array.from({ length: 100 }, (_, i) => i + 1).map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
               <div className="flex gap-2 pt-3">
@@ -798,20 +1004,95 @@ function AdminProductManager({ products, showToast, fbUser }) {
           </div>
         </div>
       )}
-      {/* --- 彈出視窗群結束 --- */}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <h4 className="font-bold text-slate-700 mb-3 text-[14px] flex items-center gap-1.5"><Layers className="w-4 h-4 text-blue-500"/> 自訂商品分類</h4>
+          <div className="flex gap-2 mb-3">
+            <input value={newCatInput} onChange={e => setNewCatInput(e.target.value)} type="text" placeholder="輸入新分類名稱..." className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-medium" />
+            <button onClick={() => handleAddOption('categories')} className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold px-4 py-2 rounded-lg transition-colors text-sm">新增</button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(systemOptions.categories || []).map(c => (
+              <span key={c} className="bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold px-2 py-1 rounded-md flex items-center gap-1">
+                {c} <button onClick={() => handleRemoveOption('categories', c)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full p-0.5 transition-colors"><X className="w-3 h-3"/></button>
+              </span>
+            ))}
+          </div>
+        </div>
+        
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <h4 className="font-bold text-slate-700 mb-3 text-[14px] flex items-center gap-1.5"><Package className="w-4 h-4 text-orange-500"/> 自訂計算單位</h4>
+          <div className="flex gap-2 mb-3">
+            <input value={newUnitInput} onChange={e => setNewUnitInput(e.target.value)} type="text" placeholder="輸入新單位名稱..." className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none text-sm font-medium" />
+            <button onClick={() => handleAddOption('units')} className="bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-4 py-2 rounded-lg transition-colors text-sm">新增</button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(systemOptions.units || []).map(u => (
+              <span key={u} className="bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold px-2 py-1 rounded-md flex items-center gap-1">
+                {u} <button onClick={() => handleRemoveOption('units', u)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full p-0.5 transition-colors"><X className="w-3 h-3"/></button>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><PlusCircle className="w-5 h-5 text-blue-600" /> 新增商品 (雲端同步)</h3>
         <form onSubmit={handleAddProduct} className="flex flex-col md:grid md:grid-cols-5 gap-3 items-end">
-          <div className="col-span-2 md:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">分類 (如: 飲品)</label><input required name="category" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px]" placeholder="分類名稱" /></div>
-          <div className="col-span-2 md:col-span-1"><label className="block text-xs font-bold text-slate-500 mb-1">商品名稱</label><input required name="name" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px]" placeholder="商品名稱" /></div>
-          <div><label className="block text-xs font-bold text-slate-500 mb-1">計算單位</label><input required name="unit" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px]" placeholder="例如: 瓶" /></div>
-          <div><label className="block text-xs font-bold text-slate-500 mb-1">預設安全庫存</label><input required name="defaultPar" type="number" min="0" step="0.5" inputMode="decimal" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px]" placeholder="數量" /></div>
+          
+          <div className="col-span-2 md:col-span-1">
+            <label className="block text-xs font-bold text-slate-500 mb-1">選擇分類</label>
+            <select required name="category" defaultValue="" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] cursor-pointer">
+              <option value="" disabled>請選擇分類</option>
+              {(systemOptions.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          <div className="col-span-2 md:col-span-1">
+            <label className="block text-xs font-bold text-slate-500 mb-1">輸入商品名稱</label>
+            <input required name="name" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px]" placeholder="商品名稱" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">選擇單位</label>
+            <select required name="unit" defaultValue="" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] cursor-pointer">
+              <option value="" disabled>請選擇單位</option>
+              {(systemOptions.units || []).map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-500 mb-1">預設安全庫存</label>
+            <select required name="defaultPar" defaultValue="0" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] cursor-pointer">
+              <option value="0">0</option>
+              {Array.from({ length: 100 }, (_, i) => i + 1).map(n => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+
           <button type="submit" className="w-full md:w-auto col-span-2 md:col-span-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold py-3.5 px-4 rounded-xl transition-all shadow-md shadow-blue-600/20 whitespace-nowrap text-[16px] mt-2 md:mt-0">加入商品庫</button>
         </form>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="flex items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-200 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all mt-6">
+        <Search className="w-5 h-5 text-slate-400 mx-2 flex-shrink-0" />
+        <input 
+          type="text" 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)} 
+          placeholder="輸入商品名稱快速搜尋..." 
+          className="flex-1 outline-none text-[16px] font-bold text-slate-700 bg-transparent"
+        />
+        {searchTerm && (
+          <button type="button" onClick={() => setSearchTerm('')} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         {Object.entries(groupedProducts).map(([category, items]) => (
           <div key={category} className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
             
@@ -819,7 +1100,6 @@ function AdminProductManager({ products, showToast, fbUser }) {
               <div className="flex items-center gap-2">
                 <Layers className="w-5 h-5 text-slate-400" />
                 <h3 className="font-black text-slate-800 tracking-wide text-[16px]">{formatCategory(category)}</h3>
-                {/* ⭐ 分類層級的編輯與刪除按鈕 */}
                 <div className="flex items-center ml-1 border-l border-slate-200 pl-1.5 gap-0.5">
                   <button onClick={() => setEditingCategory(category)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="編輯分類名稱"><Edit2 className="w-4 h-4"/></button>
                   <button onClick={() => setDeletingCategory(category)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="刪除此分類"><Trash2 className="w-4 h-4"/></button>
@@ -864,7 +1144,6 @@ function AdminProductManager({ products, showToast, fbUser }) {
                           <span className="text-[11px] text-slate-400 hidden sm:inline">安全庫存</span>
                           <span className="font-black text-blue-600 text-lg">{p.defaultPar}</span>
                         </div>
-                        {/* ⭐ 單一商品的編輯與刪除按鈕 */}
                         <div className="flex items-center border-l border-slate-100 pl-1.5 gap-0.5">
                            <button onClick={() => setEditingProduct(p)} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-xl transition-colors"><Edit2 className="w-4 h-4"/></button>
                            <button onClick={() => setDeletingProduct(p)} className="p-1.5 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4"/></button>
@@ -881,9 +1160,11 @@ function AdminProductManager({ products, showToast, fbUser }) {
   );
 }
 
-function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, systemConfig }) {
+// ⭐ 更新：加入產品與庫存資料，以支援分類隱藏設定
+function AdminQuotaManager({ branches, products, inventoryData, getBranchInventory, fbUser, showToast, systemConfig, db, appId }) {
   const [selectedBranch, setSelectedBranch] = useState(branches.length > 0 ? branches[0].username : '');
   const [activeCategory, setActiveCategory] = useState('');
+  const [searchTerm, setSearchTerm] = useState(''); 
 
   useEffect(() => { if(!selectedBranch && branches.length > 0) setSelectedBranch(branches[0].username); }, [branches, selectedBranch]);
 
@@ -891,6 +1172,10 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
 
   const activeInventory = selectedBranch ? getBranchInventory(selectedBranch) : [];
   const categories = [...new Set(activeInventory.map(i => i.category))];
+  
+  // 取得目前門店選擇隱藏的分類清單
+  const hiddenCategories = inventoryData[selectedBranch]?.hiddenCategories || [];
+  const allCategories = [...new Set(products.map(p => p.category))];
 
   useEffect(() => { 
     if (!activeCategory && categories.length > 0) setActiveCategory(categories[0]); 
@@ -909,9 +1194,30 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
     if(!fbUser) return;
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'config');
     await setDoc(docRef, { holidayMode: mode }, { merge: true });
-    
     const modeNames = { 'auto': '自動偵測 (依前日切換)', 'weekday': '手動設定 (平日)', 'holiday': '手動設定 (假日)' };
     showToast(`全系統已切換為：${modeNames[mode]}`, 'success');
+  };
+
+  const toggleGPSLock = async () => {
+    if(!fbUser) return;
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'config');
+    const newState = !systemConfig.isGPSRequired;
+    await setDoc(docRef, { isGPSRequired: newState }, { merge: true });
+    showToast(`門店 GPS 驗證機制已${newState ? '開啟' : '關閉'}！`, 'success');
+  };
+
+  // ⭐ 新增：處理單一門店分類顯示切換
+  const toggleCategoryVisibility = async (cat) => {
+    if(!fbUser || !selectedBranch) return;
+    let newHidden = [...hiddenCategories];
+    if (newHidden.includes(cat)) {
+      newHidden = newHidden.filter(c => c !== cat); // 移除隱藏 = 顯示
+    } else {
+      newHidden.push(cat); // 加入隱藏名單
+    }
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, selectedBranch);
+    await setDoc(docRef, { hiddenCategories: newHidden }, { merge: true });
+    showToast(`已更新「${formatCategory(cat)}」的顯示設定！`, 'success');
   };
 
   const branchOptions = branches.map(b => ({ value: b.username, label: b.branchName }));
@@ -919,10 +1225,25 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
 
   return (
     <div className="space-y-4">
+      <div className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-colors ${systemConfig.isGPSRequired ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+        <div>
+          <h3 className={`font-bold text-lg flex items-center gap-2 ${systemConfig.isGPSRequired ? 'text-red-800' : 'text-slate-800'}`}>
+            <ShieldCheck className="w-5 h-5" />
+            門店 GPS 定位鎖 (防護機制)
+          </h3>
+          <p className="text-sm text-slate-500 mt-1">開啟後，門店人員必須在店面半徑 300 公尺內才能操作系統。</p>
+        </div>
+        <button onClick={toggleGPSLock} className={`relative inline-flex h-8 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none shadow-inner ${systemConfig.isGPSRequired ? 'bg-red-500' : 'bg-slate-300'}`}>
+          <span className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${systemConfig.isGPSRequired ? 'translate-x-6' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
       <div className={`p-4 rounded-2xl shadow-sm border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors ${effectiveIsHoliday ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
         <div>
-          <h3 className={`font-bold text-lg flex items-center gap-2 ${effectiveIsHoliday ? 'text-orange-800' : 'text-blue-800'}`}><Calendar className="w-5 h-5" />全系統：{effectiveIsHoliday ? '假日模式' : '平日模式'}</h3>
-          <p className="text-xs text-slate-500 mt-1">切換後，所有門店將套用對應的叫貨安全庫存。</p>
+          <h3 className={`font-bold text-lg flex items-center gap-2 ${effectiveIsHoliday ? 'text-orange-800' : 'text-blue-800'}`}><Calendar className="w-5 h-5" />全系統安全庫存：{effectiveIsHoliday ? '假日模式' : '平日模式'}</h3>
+          <p className={`text-xs mt-1 font-medium ${effectiveIsHoliday ? 'text-orange-600' : 'text-blue-600'}`}>
+            目前設定：{systemConfig.holidayMode === 'auto' ? '系統自動偵測 (依據前日是否為週末)' : '總部手動設定'}
+          </p>
         </div>
         <div className="flex bg-slate-200/50 p-1 rounded-xl self-start sm:self-auto shadow-inner border border-slate-300/30">
            <button onClick={() => changeHolidayMode('auto')} className={`px-4 py-2 rounded-lg font-bold text-[13px] transition-all ${systemConfig.holidayMode === 'auto' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>自動偵測</button>
@@ -930,22 +1251,64 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
            <button onClick={() => changeHolidayMode('holiday')} className={`px-4 py-2 rounded-lg font-bold text-[13px] transition-all ${systemConfig.holidayMode === 'holiday' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>設為假日</button>
         </div>
       </div>
+
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
         <div className="flex items-center gap-2 font-bold text-slate-800"><Settings className="w-5 h-5 text-blue-600" />設定門店安全庫存</div>
-        <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="w-full md:w-auto min-w-[160px]" buttonClassName="px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800" />
+        
+        <div className="flex flex-col sm:flex-row w-full md:w-auto gap-2">
+          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-blue-500 transition-all flex-1 min-w-[200px] shadow-inner">
+             <Search className="w-4 h-4 text-slate-400 mr-2 flex-shrink-0" />
+             <input type="text" placeholder="搜尋商品..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="bg-transparent outline-none w-full font-bold text-[15px] text-slate-700" />
+             {searchTerm && <button onClick={() => setSearchTerm('')} className="ml-1 text-slate-400 hover:text-slate-600 p-1"><X className="w-4 h-4"/></button>}
+          </div>
+          <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="w-full sm:w-auto min-w-[160px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800 h-full" />
+        </div>
       </div>
 
-      <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
-        {categories.map(cat => (
-          <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-5 py-3 rounded-xl font-bold whitespace-nowrap transition-all shadow-sm border text-[15px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-            {formatCategory(cat)}
-          </button>
-        ))}
-      </div>
+      {/* ⭐ 新增：門店分類顯示切換控制區塊 */}
+      {selectedBranch && (
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex items-center justify-between mb-3">
+             <h4 className="font-bold text-slate-800 text-[14px] flex items-center gap-2">
+               <Eye className="w-4 h-4 text-blue-600"/> 門店盤點分類顯示
+             </h4>
+             <span className="text-xs text-slate-500 font-medium">點擊按鈕切換該門店可見的分類</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+             {allCategories.map(cat => {
+                const isHidden = hiddenCategories.includes(cat);
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => toggleCategoryVisibility(cat)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all border flex items-center gap-1.5 ${isHidden ? 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 shadow-inner' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm'}`}
+                  >
+                    {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {formatCategory(cat).replace(/[【】\[\]《》〈〉()]/g, '')}
+                  </button>
+                )
+             })}
+          </div>
+        </div>
+      )}
+
+      {!searchTerm ? (
+        <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
+          {categories.map(cat => (
+            <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-5 py-3 rounded-xl font-bold whitespace-nowrap transition-all shadow-sm border text-[15px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+              {formatCategory(cat)}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm font-bold text-blue-600 px-2 flex items-center gap-2">
+          <Search className="w-4 h-4"/> 正在顯示「{searchTerm}」的搜尋結果...
+        </div>
+      )}
 
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="divide-y divide-slate-100">
-          {activeInventory.filter(i => i.category === activeCategory).map(item => (
+          {activeInventory.filter(i => searchTerm ? i.name.toLowerCase().includes(searchTerm.toLowerCase()) : i.category === activeCategory).map(item => (
             <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-slate-50 transition-colors gap-3">
               <div><span className="text-[11px] font-bold text-slate-400 block sm:inline sm:mr-2">{formatCategory(item.category)}</span><span className="font-bold text-slate-800 text-lg">{item.name}</span></div>
               <div className="flex items-center gap-2 self-end sm:self-auto mt-1 sm:mt-0">
@@ -961,7 +1324,7 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
   );
 }
 
-function AdminOrderHistory({ ordersData, branches, showToast }) {
+function AdminOrderHistory({ ordersData, branches }) {
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDate, setFilterDate] = useState('');
   const [exportImgUrl, setExportImgUrl] = useState(null); 
@@ -1003,10 +1366,14 @@ function AdminOrderHistory({ ordersData, branches, showToast }) {
     showToast('正在為您產生圖檔...', 'success');
     setTimeout(async () => {
       try {
-        const canvas = await window.html2canvas(el, { scale: 2.5, backgroundColor: '#f8fafc' });
-        setExportImgUrl(canvas.toDataURL('image/png'));
-      } catch (err) { showToast('圖片產生失敗', 'error'); }
-    }, 100);
+        const canvas = await window.html2canvas(el, { 
+          scale: 1.5, 
+          backgroundColor: '#ffffff',
+          useCORS: true
+        });
+        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9));
+      } catch (err) { showToast('圖片產生失敗，請稍後再試', 'error'); }
+    }, 300);
   };
 
   return (
@@ -1166,7 +1533,7 @@ function AdminAnalytics({ ordersData, branches }) {
 // ==========================================
 // 門店視圖 (Branch Views)
 // ==========================================
-function BranchViews({ user, fbUser, products, inventoryData, ordersData, branchInventory, showToast, systemConfig }) {
+function BranchViews({ user, fbUser, products, inventoryData, ordersData, branchInventory, showToast, systemConfig, db, appId }) {
   const [activeTab, setActiveTab] = useState('inventory');
   const branchOrders = useMemo(() => ordersData.filter(o => o.branchUsername === user.username), [ordersData, user.username]);
 
@@ -1197,6 +1564,9 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
     });
   };
 
+  // ⭐ 取得目前登入門店被隱藏的分類清單
+  const hiddenCategories = inventoryData[user.username]?.hiddenCategories || [];
+
   return (
     <>
       <div className="p-3 md:p-8 max-w-4xl mx-auto w-full">
@@ -1207,7 +1577,8 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
              </button>
            ))}
         </div>
-        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} updateStockCloud={updateStockCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} />}
+        {/* ⭐ 將 hiddenCategories 傳入，讓門店看不到被隱藏的分類 */}
+        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} />}
         {activeTab === 'orders' && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
         {activeTab === 'receiving' && <BranchReceivingCheck inventory={branchInventory} updateStockCloud={updateStockCloud} purchaseOrders={branchOrders} updateOrderPartialReceiptCloud={updateOrderPartialReceiptCloud} showToast={showToast} />}
       </div>
@@ -1216,14 +1587,27 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
   );
 }
 
-function BranchInventoryCheck({ inventory, updateStockCloud, addOrderCloud, showToast, systemConfig }) {
+function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, addOrderCloud, showToast, systemConfig }) {
   const [activeCategory, setActiveCategory] = useState('');
-  const categories = [...new Set(inventory.map(i => i.category))];
+  const [searchTerm, setSearchTerm] = useState(''); 
 
-  useEffect(() => { if (!activeCategory && categories.length > 0) setActiveCategory(categories[0]); }, [categories, activeCategory]);
+  // ⭐ 過濾掉總部設定隱藏的分類
+  const visibleInventory = useMemo(() => {
+    return inventory.filter(i => !hiddenCategories.includes(i.category));
+  }, [inventory, hiddenCategories]);
+
+  const categories = [...new Set(visibleInventory.map(i => i.category))];
+
+  useEffect(() => { 
+    if ((!activeCategory || !categories.includes(activeCategory)) && categories.length > 0) {
+      setActiveCategory(categories[0]); 
+    }
+  }, [categories, activeCategory]);
 
   const generatePurchaseOrder = () => {
-    const itemsToOrder = inventory.filter(item => item.currentStock < item.activeParLevel).map(item => {
+    const itemsToOrder = visibleInventory
+      .filter(item => item.category === activeCategory && item.currentStock < item.activeParLevel)
+      .map(item => {
         const diff = item.activeParLevel - item.currentStock;
         const cleanDiff = parseFloat(diff.toFixed(1)); 
         return {
@@ -1231,11 +1615,28 @@ function BranchInventoryCheck({ inventory, updateStockCloud, addOrderCloud, show
           currentStock: item.currentStock, parLevel: item.activeParLevel, orderQty: Math.max(0, cleanDiff)
         };
       });
-    if (itemsToOrder.length === 0) { showToast('庫存充足，達到安全庫存！', 'success'); return; }
+
+    if (itemsToOrder.length === 0) { 
+      showToast(`「${formatCategory(activeCategory)}」庫存充足，達到安全庫存！`, 'success'); 
+      return; 
+    }
     
-    const newOrder = { id: `PO${Date.now().toString().slice(-6)}`, date: new Date().toLocaleString(), status: 'pending', receivedCategories: [], items: itemsToOrder };
+    const baseTimestamp = Date.now();
+    const baseIdStr = baseTimestamp.toString().slice(-6);
+
+    const cleanCategory = activeCategory.replace(/[【】\[\]《》〈〉()]/g, '');
+    const orderId = `PO-${cleanCategory}-${baseIdStr}`; 
+
+    const newOrder = { 
+      id: orderId, 
+      date: new Date(baseTimestamp).toLocaleString(), 
+      status: 'pending', 
+      receivedCategories: [], 
+      items: itemsToOrder 
+    };
+
     addOrderCloud(newOrder);
-    showToast(`叫貨單 (${newOrder.id}) 已同步回報！`);
+    showToast(`已成功產生「${formatCategory(activeCategory)}」叫貨單！`);
   };
 
   const effectiveIsHoliday = getEffectiveHolidayMode(systemConfig.holidayMode);
@@ -1268,14 +1669,41 @@ function BranchInventoryCheck({ inventory, updateStockCloud, addOrderCloud, show
         ))}
       </div>
       
+      <div className="flex items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-200 focus-within:border-orange-400 focus-within:ring-2 focus-within:ring-orange-100 transition-all mt-2 mb-4 mx-1">
+        <Search className="w-5 h-5 text-slate-400 mx-2 flex-shrink-0" />
+        <input 
+          type="text" 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)} 
+          placeholder="輸入商品名稱快速搜尋..." 
+          className="flex-1 outline-none text-[16px] font-bold text-slate-700 bg-transparent"
+        />
+        {searchTerm && (
+          <button type="button" onClick={() => setSearchTerm('')} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
+      {searchTerm && (
+        <div className="text-sm font-bold text-orange-600 px-2 mb-3 flex items-center gap-2">
+          <Search className="w-4 h-4"/> 顯示「{searchTerm}」的結果 (點擊商品自動切換叫貨分類)
+        </div>
+      )}
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-4">
-        {inventory.filter(i => i.category === activeCategory).map(item => {
+        {visibleInventory.filter(i => searchTerm ? i.name.toLowerCase().includes(searchTerm.toLowerCase()) : i.category === activeCategory).map(item => {
           const isDeficient = item.currentStock < item.activeParLevel;
           return (
-            <div key={item.id} className={`p-4 rounded-[1.25rem] border-2 transition-colors flex flex-col justify-between ${isDeficient ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100 bg-white shadow-sm'}`}>
+            <div 
+              key={item.id} 
+              onClick={() => setActiveCategory(item.category)}
+              className={`p-4 rounded-[1.25rem] border-2 transition-colors flex flex-col justify-between cursor-pointer ${isDeficient ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100 bg-white shadow-sm'} ${searchTerm && activeCategory === item.category ? 'ring-2 ring-orange-400 border-orange-400' : ''}`}
+            >
               
               <div className="flex justify-between items-start">
                 <div>
+                  {searchTerm && <span className="text-[11px] font-bold text-slate-400 block mb-0.5">{formatCategory(item.category)}</span>}
                   <h3 className="text-[18px] font-black text-slate-800">{item.name}</h3>
                   <div className="text-[12px] mt-1 flex gap-1.5 font-medium text-slate-500">
                     安全庫存: <span className="text-blue-600 font-bold">{item.activeParLevel}</span> {item.unit}
@@ -1290,7 +1718,10 @@ function BranchInventoryCheck({ inventory, updateStockCloud, addOrderCloud, show
                   <div className="relative w-24 h-[42px] flex items-center justify-center bg-slate-50 border border-slate-200 rounded-xl shadow-inner active:bg-slate-100 transition-colors">
                     <select
                       value={item.currentStock === 0 && !isDeficient ? '' : item.currentStock}
-                      onChange={(e) => updateStockCloud(item.id, e.target.value)}
+                      onChange={(e) => {
+                        updateStockCloud(item.id, e.target.value);
+                        setActiveCategory(item.category); 
+                      }}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                     >
                       {Array.from({ length: 2000 }, (_, i) => {
@@ -1326,10 +1757,14 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
     showToast('正在為您產生圖檔...', 'success');
     setTimeout(async () => {
       try {
-        const canvas = await window.html2canvas(el, { scale: 2.5, backgroundColor: '#f8fafc' });
-        setExportImgUrl(canvas.toDataURL('image/png'));
-      } catch (err) { showToast('圖片產生失敗', 'error'); }
-    }, 100);
+        const canvas = await window.html2canvas(el, { 
+          scale: 1.5, 
+          backgroundColor: '#ffffff',
+          useCORS: true
+        });
+        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9));
+      } catch (err) { showToast('圖片產生失敗，請稍後再試', 'error'); }
+    }, 300);
   };
 
   if (purchaseOrders.length === 0) {
@@ -1368,7 +1803,12 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
                       </div>
                       <div className="flex items-center gap-2">
                          <StatusBadge status={order.status} />
-                         <button data-html2canvas-ignore="true" onClick={() => handleExportCard(cardId)} className="p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95" title="匯出圖檔">
+                         <button 
+                           data-html2canvas-ignore="true" 
+                           onClick={() => handleExportCard(cardId)} 
+                           className="p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95" 
+                           title="匯出圖檔"
+                         >
                            <Download className="w-4 h-4" />
                          </button>
                       </div>
