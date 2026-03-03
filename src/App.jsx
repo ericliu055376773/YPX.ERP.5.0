@@ -115,7 +115,7 @@ export default function App() {
     holidayMode: 'auto', 
     categoryOrder: [], 
     isGPSRequired: false,
-    permissions: { manager: {}, crew: {} } // ⭐ 預設權限狀態
+    permissions: { manager: {}, crew: {} } 
   });
   const [systemOptions, setSystemOptions] = useState({ categories: [], units: [], reorderUnits: [] });
 
@@ -133,13 +133,21 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
+  // ⭐ 升級版：注入全新強大的截圖引擎 html-to-image (並保留 html2canvas 備用)
   useEffect(() => {
+    if (!document.getElementById('html-to-image-script')) {
+      const script1 = document.createElement('script');
+      script1.id = 'html-to-image-script';
+      script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js';
+      script1.async = true;
+      document.head.appendChild(script1);
+    }
     if (!document.getElementById('html2canvas-script')) {
-      const script = document.createElement('script');
-      script.id = 'html2canvas-script';
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      script.async = true;
-      document.head.appendChild(script);
+      const script2 = document.createElement('script');
+      script2.id = 'html2canvas-script';
+      script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      script2.async = true;
+      document.head.appendChild(script2);
     }
 
     const initAuth = async () => {
@@ -188,7 +196,6 @@ export default function App() {
           else if (data.isHolidayMode !== undefined) config.holidayMode = data.isHolidayMode ? 'holiday' : 'weekday';
           if (data.categoryOrder) config.categoryOrder = data.categoryOrder;
           if (data.isGPSRequired !== undefined) config.isGPSRequired = data.isGPSRequired;
-          // ⭐ 合併雲端的權限設定
           if (data.permissions) config.permissions = { ...config.permissions, ...data.permissions }; 
         }
       });
@@ -1242,7 +1249,6 @@ function AdminBranchManager({ branches, showToast, fbUser, db, appId, systemConf
   const [showPasswords, setShowPasswords] = useState({});
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
-  // ⭐ 變更權限的雲端函數
   const togglePermission = async (role, field) => {
     if (!fbUser) return;
     const currentPerms = systemConfig.permissions || { manager: {}, crew: {} };
@@ -1297,7 +1303,6 @@ function AdminBranchManager({ branches, showToast, fbUser, db, appId, systemConf
   return (
     <div className="space-y-6">
       
-      {/* ⭐ 門店職級權限開放設定卡片 */}
       <div className="bg-white p-5 sm:p-6 rounded-[2rem] shadow-sm border border-slate-200">
         <div className="flex items-center gap-2 mb-2">
           <ShieldCheck className="w-6 h-6 text-blue-600" />
@@ -1306,7 +1311,6 @@ function AdminBranchManager({ branches, showToast, fbUser, db, appId, systemConf
         <p className="text-sm text-slate-500 mb-5 font-medium">開啟後，該職級的門店人員將可於前台看見對應的管理分頁。</p>
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* 店長權限 */}
           <div className="bg-orange-50 border border-orange-100 rounded-2xl p-5 shadow-inner">
              <h4 className="font-bold text-orange-800 mb-4 flex items-center gap-2"><Store className="w-5 h-5"/> 店長 (Manager)</h4>
              <div className="space-y-3">
@@ -1320,7 +1324,6 @@ function AdminBranchManager({ branches, showToast, fbUser, db, appId, systemConf
                 </div>
              </div>
           </div>
-          {/* 組員權限 */}
           <div className="bg-green-50 border border-green-100 rounded-2xl p-5 shadow-inner">
              <h4 className="font-bold text-green-800 mb-4 flex items-center gap-2"><Users className="w-5 h-5"/> 組員 (Crew)</h4>
              <div className="space-y-3">
@@ -1524,7 +1527,6 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
 
   return (
     <div className="space-y-4">
-      {/* 總部專屬設定區塊 */}
       {!isBranchUser && (
         <>
           <div className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-colors ${systemConfig.isGPSRequired ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
@@ -1575,7 +1577,6 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
         </>
       )}
 
-      {/* 門店人員專屬標題 */}
       {isBranchUser && (
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center gap-2 font-bold text-slate-800">
@@ -1754,17 +1755,45 @@ function AdminOrderHistory({ ordersData, branches, showToast, resolveOrderIssueC
   const uniqueBranchNames = useMemo(() => [...new Set(branches.map(b => b.branchName))].filter(Boolean), [branches]);
   const branchOptions = [{ value: 'all', label: '所有門店' }, ...uniqueBranchNames.map(name => ({ value: name, label: name }))];
 
+  // ⭐ 全新強大的截圖引擎 (支援 html-to-image)
   const handleExportCard = async (elementId) => {
-    if (!window.html2canvas) { showToast('截圖元件載入中，請稍候', 'error'); return; }
     const el = document.getElementById(elementId);
     if (!el) return;
-    showToast('正在為您產生圖檔...', 'success');
+    showToast('正在處理圖檔，請稍候...', 'success');
+    
     setTimeout(async () => {
-      try { 
-        const canvas = await window.html2canvas(el, { scale: 1.5, backgroundColor: '#ffffff', useCORS: true, logging: false }); 
-        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.85)); 
-      } catch (err) { showToast('圖片產生失敗', 'error'); }
-    }, 400);
+      try {
+        // 首選：現代化 htmlToImage 引擎 (絕不崩潰)
+        if (window.htmlToImage) {
+          const dataUrl = await window.htmlToImage.toJpeg(el, { 
+            quality: 0.9, 
+            backgroundColor: '#ffffff',
+            pixelRatio: 2,
+            filter: (node) => (node.getAttribute ? node.getAttribute('data-export-ignore') !== 'true' : true)
+          });
+          setExportImgUrl(dataUrl);
+          return;
+        }
+        
+        // 備用：舊版 html2canvas
+        if (window.html2canvas) {
+          const canvas = await window.html2canvas(el, { 
+            scale: 2, 
+            backgroundColor: '#ffffff', 
+            useCORS: true, 
+            logging: false,
+            ignoreElements: (node) => node.getAttribute && node.getAttribute('data-export-ignore') === 'true'
+          });
+          setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9));
+          return;
+        }
+        
+        showToast('截圖元件載入中，請稍候', 'error');
+      } catch (err) {
+        console.error('Image Export Error:', err);
+        showToast('圖片產生失敗，請直接使用手機螢幕截圖', 'error');
+      }
+    }, 600);
   };
 
   return (
@@ -1820,7 +1849,7 @@ function AdminOrderHistory({ ordersData, branches, showToast, resolveOrderIssueC
                 
                 return (
                   <div key={category} id={cardId} className="bg-[#fffdf8] border-2 border-[#fde6ca] rounded-[1.5rem] p-5 mb-4 shadow-sm relative">
-                     <button data-html2canvas-ignore="true" onClick={() => handleExportCard(cardId)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Download className="w-4 h-4" /></button>
+                     <button data-export-ignore="true" onClick={() => handleExportCard(cardId)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Download className="w-4 h-4" /></button>
                      
                      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 border-b border-orange-100/50 pb-3 pr-12 gap-2">
                        <div className="flex items-center gap-3">
@@ -1880,7 +1909,7 @@ function AdminOrderHistory({ ordersData, branches, showToast, resolveOrderIssueC
                                  />
                               )}
                               {!isResolved && (
-                                <button data-html2canvas-ignore="true" onClick={() => setResolvingIssue({orderId: order.id, category})} className="px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                                <button data-export-ignore="true" onClick={() => setResolvingIssue({orderId: order.id, category})} className="px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 w-full sm:w-auto">
                                   <CheckCircle2 className="w-4 h-4"/> 標記為已解決
                                 </button>
                               )}
@@ -1976,7 +2005,6 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
   
   const isManager = user.role === 'manager' || user.role === 'branch'; 
 
-  // ⭐ 動態計算是否擁有特殊權限
   const actualRole = user.role === 'branch' ? 'manager' : user.role;
   const canEditProducts = systemConfig?.permissions?.[actualRole]?.editProducts;
   const canEditQuotas = systemConfig?.permissions?.[actualRole]?.editQuotas;
@@ -2030,7 +2058,6 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
     }
   }, [fbUser, user?.branchName, inventoryData[user?.branchName]?.lastResetDate, db, appId]);
 
-  // ⭐ 根據權限動態生成底部選單
   const tabs = [
     { id: 'inventory', icon: <ClipboardList />, label: '盤點' },
     ...(isManager ? [{ id: 'orders', icon: <ShoppingCart />, label: '叫貨' }] : []),
@@ -2091,7 +2118,6 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
         {activeTab === 'receiving' && <BranchReceivingCheck inventory={branchInventory} updateStockCloud={updateStockCloud} purchaseOrders={branchOrders} updateOrderPartialReceiptCloud={updateOrderPartialReceiptCloud} showToast={showToast} resolveOrderIssueCloud={resolveOrderIssueCloud} />}
         
-        {/* ⭐ 動態載入總部的管理元件 (帶有 isBranchUser=true 參數以隱藏無關區塊) */}
         {activeTab === 'quotas' && canEditQuotas && (
           <AdminQuotaManager branches={[{username: user.username, branchName: user.branchName}]} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} products={products} inventoryData={inventoryData} systemOptions={systemOptions} db={db} appId={appId} isBranchUser={true} />
         )}
@@ -2296,17 +2322,43 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
 function BranchOrderManagement({ purchaseOrders, showToast }) {
   const [exportImgUrl, setExportImgUrl] = useState(null); 
 
+  // ⭐ 全新升級：更強大防錯的截圖輸出引擎
   const handleExportCard = async (elementId) => {
-    if (!window.html2canvas) { showToast('截圖元件載入中，請稍候', 'error'); return; }
     const el = document.getElementById(elementId);
     if (!el) return;
-    showToast('正在為您產生圖檔...', 'success');
+    showToast('正在處理圖檔，請稍候...', 'success');
+    
     setTimeout(async () => {
-      try { 
-        const canvas = await window.html2canvas(el, { scale: 1.5, backgroundColor: '#ffffff', useCORS: true, logging: false }); 
-        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.85)); 
-      } catch (err) { showToast('圖片產生失敗', 'error'); }
-    }, 400);
+      try {
+        if (window.htmlToImage) {
+          const dataUrl = await window.htmlToImage.toJpeg(el, { 
+            quality: 0.9, 
+            backgroundColor: '#ffffff',
+            pixelRatio: 2,
+            filter: (node) => (node.getAttribute ? node.getAttribute('data-export-ignore') !== 'true' : true)
+          });
+          setExportImgUrl(dataUrl);
+          return;
+        }
+        
+        if (window.html2canvas) {
+          const canvas = await window.html2canvas(el, { 
+            scale: 2, 
+            backgroundColor: '#ffffff', 
+            useCORS: true, 
+            logging: false,
+            ignoreElements: (node) => node.getAttribute && node.getAttribute('data-export-ignore') === 'true'
+          });
+          setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9));
+          return;
+        }
+        
+        showToast('截圖元件載入中，請稍候', 'error');
+      } catch (err) {
+        console.error('Image Export Error:', err);
+        showToast('圖片產生失敗，請直接使用手機截圖', 'error');
+      }
+    }, 600);
   };
 
   if (purchaseOrders.length === 0) {
@@ -2333,7 +2385,7 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
 
               return (
                 <div key={category} id={cardId} className="bg-[#fffdf8] border-2 border-[#fde6ca] rounded-[1.5rem] p-5 mb-4 shadow-sm relative">
-                   <button data-html2canvas-ignore="true" onClick={() => handleExportCard(cardId)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Download className="w-4 h-4" /></button>
+                   <button data-export-ignore="true" onClick={() => handleExportCard(cardId)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Download className="w-4 h-4" /></button>
                    
                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 border-b border-orange-100/50 pb-3 pr-12 gap-2">
                      <div>
@@ -2637,7 +2689,7 @@ function BranchReceivingCheck({ inventory, updateStockCloud, purchaseOrders, upd
                           {issue.photo && (
                              <img src={issue.photo} alt="異常佐證" className="h-20 w-20 object-cover rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:opacity-80 transition-opacity" onClick={() => window.open(issue.photo)} />
                           )}
-                          <button onClick={() => setResolvingIssue({orderId: order.id, category: issue.category})} className="px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 w-full sm:w-auto">
+                          <button data-export-ignore="true" onClick={() => setResolvingIssue({orderId: order.id, category: issue.category})} className="px-4 py-2 bg-green-600 hover:bg-green-700 active:scale-95 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 w-full sm:w-auto">
                             <CheckCircle2 className="w-4 h-4"/> 標記為已解決
                           </button>
                         </div>
