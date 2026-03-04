@@ -271,7 +271,7 @@ export default function App() {
         parLevel: regularPar,
         parLevelHoliday: holidayPar,
         activeParLevel: isHoliday ? holidayPar : regularPar,
-        reorderQty: (bSetting.reorderQty !== undefined && bSetting.reorderQty !== null) ? bSetting.reorderQty : (product.defaultReorderQty || ''),
+        reorderQty: (bSetting.reorderQty !== undefined && bSetting.reorderQty !== null) ? bSetting.reorderQty : (product.defaultReorderQty || 0),
         reorderUnit: (bSetting.reorderUnit !== undefined && bSetting.reorderUnit !== null) ? bSetting.reorderUnit : (product.defaultReorderUnit || '')
       };
     });
@@ -736,6 +736,7 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
 function AdminProductManager({ products, showToast, fbUser, systemOptions, systemConfig, db, appId }) {
   const [searchTerm, setSearchTerm] = useState(''); 
   const [editingProduct, setEditingProduct] = useState(null);
+  const [editReorderMode, setEditReorderMode] = useState('diff'); // 新增：編輯模式的叫貨邏輯狀態
   const [deletingProduct, setDeletingProduct] = useState(null);
   
   const [newCatInput, setNewCatInput] = useState(''); 
@@ -745,6 +746,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
   const [newReorderUnitInput, setNewReorderUnitInput] = useState('');
 
   const [addProductCat, setAddProductCat] = useState(''); 
+  const [addReorderMode, setAddReorderMode] = useState('diff'); // 新增：新增模式的叫貨邏輯狀態
 
   const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories);
 
@@ -849,13 +851,14 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       unit: formData.get('unit').trim(), 
       defaultPar: parseFloat(formData.get('defaultPar')) || 0,
       defaultParHoliday: parseFloat(formData.get('defaultParHoliday')) || 0,
-      defaultReorderQty: parseFloat(formData.get('defaultReorderQty')) || 0,
-      defaultReorderUnit: formData.get('defaultReorderUnit') || '',
+      defaultReorderQty: addReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0,
+      defaultReorderUnit: addReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : '',
       order: products.length 
     };
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, id), newProduct);
     e.target.name.value = '';
-    e.target.defaultReorderQty.value = '';
+    if(e.target.defaultReorderQty) e.target.defaultReorderQty.value = '';
+    setAddReorderMode('diff'); // 新增後重置為預設補齊差額模式
     showToast(`成功新增：${newProduct.name}`);
   };
 
@@ -874,8 +877,8 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       unit: formData.get('unit').trim(), 
       defaultPar: parseFloat(formData.get('defaultPar')) || 0,
       defaultParHoliday: parseFloat(formData.get('defaultParHoliday')) || 0,
-      defaultReorderQty: parseFloat(formData.get('defaultReorderQty')) || 0,
-      defaultReorderUnit: formData.get('defaultReorderUnit') || ''
+      defaultReorderQty: editReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0,
+      defaultReorderUnit: editReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : ''
     });
     showToast(`商品已更新：${newName}`);
     setEditingProduct(null);
@@ -955,25 +958,38 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                 </div>
               </div>
 
+              {/* 明確拆分出叫貨邏輯選單 */}
               <div className="flex gap-3 pt-2 border-t border-slate-100">
                 <div className="flex-1">
-                  <label className="text-xs font-bold text-indigo-500 mb-1 block">預設固定叫貨量</label>
-                  <input name="defaultReorderQty" type="number" min="0" step="0.5" defaultValue={editingProduct.defaultReorderQty || ''} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-700" placeholder="選填" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-indigo-500 mb-1 block">預設叫貨單位</label>
-                  <select name="defaultReorderUnit" defaultValue={editingProduct.defaultReorderUnit || ''} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-700">
-                    <option value="">同盤點單位</option>
-                    {(systemOptions.reorderUnits || []).filter(u => {
-                       const uCat = typeof u === 'string' ? '通用' : u.category;
-                       return uCat === '通用' || uCat === editingProduct.category;
-                    }).map((u, i) => {
-                       const uName = typeof u === 'string' ? u : u.name;
-                       return <option key={`ru-${i}`} value={uName}>{uName}</option>;
-                    })}
-                    {editingProduct.defaultReorderUnit && !(systemOptions.reorderUnits || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.defaultReorderUnit) && <option value={editingProduct.defaultReorderUnit}>{editingProduct.defaultReorderUnit}</option>}
+                  <label className="text-xs font-bold text-indigo-500 mb-1 block">低於安全值，叫貨邏輯</label>
+                  <select value={editReorderMode} onChange={e => setEditReorderMode(e.target.value)} className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[15px] font-bold text-indigo-800 shadow-inner">
+                    <option value="diff">補齊差額 (安全 - 實有)</option>
+                    <option value="fixed">每次固定叫貨數量</option>
                   </select>
                 </div>
+                
+                {editReorderMode === 'fixed' && (
+                  <>
+                    <div className="flex-1">
+                      <label className="text-xs font-bold text-indigo-500 mb-1 block">每次固定叫貨量</label>
+                      <input name="defaultReorderQty" type="number" min="0" step="0.5" defaultValue={editingProduct.defaultReorderQty || ''} className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[15px] font-bold text-indigo-700" placeholder="數量" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-xs font-bold text-indigo-500 mb-1 block">叫貨單位</label>
+                      <select name="defaultReorderUnit" defaultValue={editingProduct.defaultReorderUnit || ''} className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[15px] font-bold text-indigo-700">
+                        <option value="">同盤點單位</option>
+                        {(systemOptions.reorderUnits || []).filter(u => {
+                           const uCat = typeof u === 'string' ? '通用' : u.category;
+                           return uCat === '通用' || uCat === editingProduct.category;
+                        }).map((u, i) => {
+                           const uName = typeof u === 'string' ? u : u.name;
+                           return <option key={`ru-${i}`} value={uName}>{uName}</option>;
+                        })}
+                        {editingProduct.defaultReorderUnit && !(systemOptions.reorderUnits || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.defaultReorderUnit) && <option value={editingProduct.defaultReorderUnit}>{editingProduct.defaultReorderUnit}</option>}
+                      </select>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex gap-2 pt-3"><button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md">儲存修改</button></div>
@@ -1107,22 +1123,38 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
           </div>
           
           <div className="sm:col-span-1 md:col-span-2">
-            <label className="block text-xs font-bold text-indigo-500 mb-1.5 ml-1">6. 預設固定叫貨量 (選填)</label>
-            <input name="defaultReorderQty" type="number" min="0" step="0.5" className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-800 shadow-inner placeholder-indigo-300" placeholder="低於安全值叫貨數量" />
-          </div>
-          
-          <div className="sm:col-span-1 md:col-span-2">
-            <label className="block text-xs font-bold text-indigo-500 mb-1.5 ml-1">7. 預設叫貨單位 (選填)</label>
-            <select name="defaultReorderUnit" defaultValue="" className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-800 shadow-inner">
-              <option value="">同盤點單位</option>
-              {availableReorderUnits.map((u, i) => {
-                 const uName = typeof u === 'string' ? u : u.name;
-                 return <option key={`ru-${i}`} value={uName}>{uName}</option>;
-              })}
+            <label className="block text-xs font-bold text-indigo-500 mb-1.5 ml-1">6. 低於安全值，叫貨邏輯</label>
+            <select value={addReorderMode} onChange={e => setAddReorderMode(e.target.value)} className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-800 shadow-inner cursor-pointer">
+              <option value="diff">自動補齊差額 (安全 - 實有)</option>
+              <option value="fixed">每次固定叫貨數量</option>
             </select>
           </div>
 
-          <div className="sm:col-span-2 md:col-span-2">
+          {addReorderMode === 'fixed' ? (
+            <>
+              <div className="sm:col-span-1 md:col-span-2">
+                <label className="block text-xs font-bold text-indigo-500 mb-1.5 ml-1">7. 固定叫貨數量</label>
+                <input name="defaultReorderQty" type="number" min="0" step="0.5" className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-800 shadow-inner placeholder-indigo-300" placeholder="例如: 1" />
+              </div>
+              
+              <div className="sm:col-span-1 md:col-span-2">
+                <label className="block text-xs font-bold text-indigo-500 mb-1.5 ml-1">8. 固定叫貨單位</label>
+                <select name="defaultReorderUnit" defaultValue="" className="w-full px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[16px] font-bold text-indigo-800 shadow-inner">
+                  <option value="">同盤點單位</option>
+                  {availableReorderUnits.map((u, i) => {
+                     const uName = typeof u === 'string' ? u : u.name;
+                     return <option key={`ru-${i}`} value={uName}>{uName}</option>;
+                  })}
+                </select>
+              </div>
+            </>
+          ) : (
+             <div className="sm:col-span-1 md:col-span-4 flex items-center px-4 h-[50px]">
+                <span className="text-sm font-bold text-slate-400">系統將自動計算差額 (青江菜模式)</span>
+             </div>
+          )}
+
+          <div className="sm:col-span-2 md:col-span-2 md:col-start-5">
              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md shadow-blue-600/20 whitespace-nowrap text-[16px] h-[50px] flex justify-center items-center">
                加入商品庫
              </button>
@@ -1161,7 +1193,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                      </div>
                      {p.defaultReorderQty > 0 && (
                        <span className="text-[11px] font-bold text-indigo-600">
-                         預設叫貨: {p.defaultReorderQty} {p.defaultReorderUnit || p.unit}
+                         預設邏輯: 每次固定叫 {p.defaultReorderQty} {p.defaultReorderUnit || p.unit}
                        </span>
                      )}
                   </div>
@@ -1177,7 +1209,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                        </div>
                      </div>
                      <div className="flex items-center border-l border-slate-100 pl-2 gap-0.5">
-                        <button onClick={() => setEditingProduct(p)} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-xl transition-colors"><Edit2 className="w-4 h-4"/></button>
+                        <button onClick={() => { setEditingProduct(p); setEditReorderMode(p.defaultReorderQty > 0 ? 'fixed' : 'diff'); }} className="p-1.5 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-xl transition-colors"><Edit2 className="w-4 h-4"/></button>
                         <button onClick={() => setDeletingProduct(p)} className="p-1.5 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4"/></button>
                      </div>
                   </div>
@@ -1406,17 +1438,18 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
             <Bell className="w-5 h-5"/> 門店專屬公告欄
           </h4>
           <p className="text-xs text-slate-500 font-medium mb-3">此公告將顯示在該門店人員的「每日盤點」畫面最頂端。</p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input 
-              type="text" 
+          <div className="flex flex-col gap-3">
+            {/* 將 input 改為 textarea，支援多行輸入與空白對齊 */}
+            <textarea 
+              rows="5"
               value={announcementInput} 
               onChange={(e) => setAnnouncementInput(e.target.value)} 
-              placeholder={`輸入要顯示給 ${selectedBranch} 的公告內容...`}
-              className="flex-1 px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[15px] font-bold text-slate-700 shadow-inner"
+              placeholder={`輸入要顯示給 ${selectedBranch} 的公告內容...\n(支援多行輸入，請使用「空白鍵」來對齊文字)`}
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[14px] font-bold text-slate-700 shadow-inner font-mono whitespace-pre resize-y"
             />
             <button 
               onClick={saveAnnouncement} 
-              className="bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-6 py-3.5 rounded-xl transition-colors shadow-sm whitespace-nowrap active:scale-95"
+              className="bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-6 py-3.5 rounded-xl transition-colors shadow-sm whitespace-nowrap active:scale-95 self-end"
             >
               發佈公告
             </button>
@@ -1490,26 +1523,50 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
                     <span className="text-slate-500 font-bold px-1 text-sm shrink-0 w-8">{item.unit}</span>
                   </div>
                   <div className="flex items-center justify-end gap-2">
-                    <div className="flex items-center bg-indigo-50 p-1.5 rounded-xl border border-indigo-200 shadow-sm">
-                      <span className="text-[11px] font-bold text-indigo-700 px-2 whitespace-nowrap">低於安全值，固定叫貨：</span>
-                      <input 
-                        type="number" min="0" step="0.5" inputMode="decimal" 
-                        placeholder={item.defaultReorderQty ? `預設 ${item.defaultReorderQty}` : "補差額"} 
-                        value={item.reorderQty || ''} 
-                        onChange={(e) => handleParLevelChange(item.id, 'reorderQty', e.target.value)} 
-                        className="w-20 sm:w-24 px-2 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-black text-indigo-700 text-[16px] shadow-inner" 
-                      />
+                    <div className="flex items-center bg-indigo-50 p-1.5 rounded-xl border border-indigo-200 shadow-sm gap-1">
+                      <span className="text-[11px] font-bold text-indigo-700 pl-2 pr-1 whitespace-nowrap">叫貨邏輯：</span>
+                      
                       <select 
-                        value={item.reorderUnit || ''} 
-                        onChange={(e) => handleParLevelChange(item.id, 'reorderUnit', e.target.value)} 
-                        className="w-20 sm:w-24 ml-1 px-1 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-indigo-600 text-[14px] shadow-inner cursor-pointer"
+                        value={parseFloat(item.reorderQty) > 0 ? 'fixed' : 'diff'} 
+                        onChange={(e) => {
+                          if (e.target.value === 'diff') {
+                            handleParLevelChange(item.id, 'reorderQty', '0'); // 覆寫回 0 代表走補差額邏輯
+                          } else {
+                            handleParLevelChange(item.id, 'reorderQty', item.defaultReorderQty > 0 ? item.defaultReorderQty : '1');
+                          }
+                        }} 
+                        className="px-2 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-indigo-700 text-[13px] shadow-inner cursor-pointer"
                       >
-                        <option value="">{item.defaultReorderUnit || item.unit}</option>
-                        {availableReorderUnits.map((u, i) => {
-                           const uName = typeof u === 'string' ? u : u.name;
-                           return <option key={i} value={uName}>{uName}</option>;
-                        })}
+                        <option value="diff">補齊差額</option>
+                        <option value="fixed">固定數量</option>
                       </select>
+
+                      {parseFloat(item.reorderQty) > 0 ? (
+                        <div className="flex items-center ml-1 gap-1">
+                          <input 
+                            type="number" min="0" step="0.5" inputMode="decimal" 
+                            placeholder="數量" 
+                            value={item.reorderQty || ''} 
+                            onChange={(e) => handleParLevelChange(item.id, 'reorderQty', e.target.value)} 
+                            className="w-14 sm:w-16 px-1 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-black text-indigo-700 text-[15px] shadow-inner" 
+                          />
+                          <select 
+                            value={item.reorderUnit || ''} 
+                            onChange={(e) => handleParLevelChange(item.id, 'reorderUnit', e.target.value)} 
+                            className="w-16 sm:w-20 px-1 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-indigo-600 text-[13px] shadow-inner cursor-pointer"
+                          >
+                            <option value="">{item.defaultReorderUnit || item.unit}</option>
+                            {availableReorderUnits.map((u, i) => {
+                               const uName = typeof u === 'string' ? u : u.name;
+                               return <option key={i} value={uName}>{uName}</option>;
+                            })}
+                          </select>
+                        </div>
+                      ) : (
+                         <span className="text-[11px] font-bold text-slate-500 px-2 whitespace-nowrap">
+                           自動算 (安全 - 實有)
+                         </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1944,9 +2001,14 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
       {branchAnnouncement && (
         <div className="bg-[#fffbf0] border-2 border-orange-200 rounded-[1.5rem] p-4 flex items-start gap-3 shadow-sm">
           <Bell className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <h4 className="text-orange-800 font-bold text-sm mb-1">總部最新公告</h4>
-            <p className="text-slate-700 font-bold whitespace-pre-wrap leading-relaxed">{branchAnnouncement}</p>
+          <div className="flex-1 overflow-x-auto">
+            <h4 className="text-orange-800 font-bold text-sm mb-2">總部最新公告</h4>
+            {/* 使用 pre 標籤與等寬字體(font-mono)，完美保留空白與換行 */}
+            <div className="bg-white/60 rounded-xl p-3 border border-orange-100/50">
+              <pre className="text-slate-700 font-bold font-mono text-[14px] whitespace-pre-wrap leading-relaxed">
+                {branchAnnouncement}
+              </pre>
+            </div>
           </div>
         </div>
       )}
