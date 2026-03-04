@@ -736,7 +736,7 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
 function AdminProductManager({ products, showToast, fbUser, systemOptions, systemConfig, db, appId }) {
   const [searchTerm, setSearchTerm] = useState(''); 
   const [editingProduct, setEditingProduct] = useState(null);
-  const [editReorderMode, setEditReorderMode] = useState('diff'); // 新增：編輯模式的叫貨邏輯狀態
+  const [editReorderMode, setEditReorderMode] = useState('diff'); 
   const [deletingProduct, setDeletingProduct] = useState(null);
   
   const [newCatInput, setNewCatInput] = useState(''); 
@@ -746,7 +746,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
   const [newReorderUnitInput, setNewReorderUnitInput] = useState('');
 
   const [addProductCat, setAddProductCat] = useState(''); 
-  const [addReorderMode, setAddReorderMode] = useState('diff'); // 新增：新增模式的叫貨邏輯狀態
+  const [addReorderMode, setAddReorderMode] = useState('diff'); 
 
   const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories);
 
@@ -853,12 +853,13 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       defaultParHoliday: parseFloat(formData.get('defaultParHoliday')) || 0,
       defaultReorderQty: addReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0,
       defaultReorderUnit: addReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : '',
+      includeInUseQty: formData.get('includeInUseQty') === 'on',
       order: products.length 
     };
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, id), newProduct);
     e.target.name.value = '';
     if(e.target.defaultReorderQty) e.target.defaultReorderQty.value = '';
-    setAddReorderMode('diff'); // 新增後重置為預設補齊差額模式
+    setAddReorderMode('diff'); 
     showToast(`成功新增：${newProduct.name}`);
   };
 
@@ -878,7 +879,8 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       defaultPar: parseFloat(formData.get('defaultPar')) || 0,
       defaultParHoliday: parseFloat(formData.get('defaultParHoliday')) || 0,
       defaultReorderQty: editReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0,
-      defaultReorderUnit: editReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : ''
+      defaultReorderUnit: editReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : '',
+      includeInUseQty: formData.get('includeInUseQty') === 'on'
     });
     showToast(`商品已更新：${newName}`);
     setEditingProduct(null);
@@ -958,7 +960,6 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                 </div>
               </div>
 
-              {/* 明確拆分出叫貨邏輯選單 */}
               <div className="flex gap-3 pt-2 border-t border-slate-100">
                 <div className="flex-1">
                   <label className="text-xs font-bold text-indigo-500 mb-1 block">低於安全值，叫貨邏輯</label>
@@ -990,6 +991,13 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="pt-2 mt-1 border-t border-slate-100">
+                <label className="flex items-center gap-2 cursor-pointer p-2.5 bg-slate-50 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">
+                  <input type="checkbox" name="includeInUseQty" defaultChecked={editingProduct.includeInUseQty} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+                  <span className="text-[14px] font-bold text-slate-700">標示：盤點需加總「已拆封/使用中」數量</span>
+                </label>
               </div>
 
               <div className="flex gap-2 pt-3"><button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md">儲存修改</button></div>
@@ -1153,8 +1161,16 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                 <span className="text-sm font-bold text-slate-400">系統將自動計算差額 (青江菜模式)</span>
              </div>
           )}
+          
+          {/* 新增：加總使用中設定選項 */}
+          <div className="sm:col-span-1 md:col-span-4 flex items-center h-[50px]">
+             <label className="flex items-center gap-2 cursor-pointer px-2">
+               <input type="checkbox" name="includeInUseQty" className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
+               <span className="text-[15px] font-bold text-slate-700">顯示標示：盤點需加總「已拆封/使用中」數量</span>
+             </label>
+          </div>
 
-          <div className="sm:col-span-2 md:col-span-2 md:col-start-5">
+          <div className="sm:col-span-2 md:col-span-2">
              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md shadow-blue-600/20 whitespace-nowrap text-[16px] h-[50px] flex justify-center items-center">
                加入商品庫
              </button>
@@ -1187,9 +1203,13 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
               {items.map(p => (
                 <div key={p.id} className="flex items-stretch border-b border-slate-100 bg-white transition-all overflow-hidden last:border-0 hover:bg-slate-50">
                   <div className="flex-1 px-4 py-3 flex flex-col justify-center">
-                     <div className="flex items-center gap-2 mb-1">
+                     <div className="flex items-center gap-2 flex-wrap mb-1">
                        <span className="font-bold text-slate-700 text-[16px]">{p.name}</span>
                        <span className="text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">{p.unit}</span>
+                       {/* 後台也顯示小標籤，讓管理者一目了然 */}
+                       {p.includeInUseQty && (
+                         <span className="text-[10px] bg-purple-50 text-purple-600 border border-purple-200 px-1.5 py-0.5 rounded-md font-bold shadow-sm whitespace-nowrap">含使用中</span>
+                       )}
                      </div>
                      {p.defaultReorderQty > 0 && (
                        <span className="text-[11px] font-bold text-indigo-600">
@@ -2073,8 +2093,16 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
               <div className="flex justify-between items-start mb-2">
                 <div>
                   {searchTerm && <span className="text-[11px] font-bold text-slate-400 block mb-0.5">{formatCategory(item.category)}</span>}
-                  <h3 className="text-[20px] font-black text-slate-800 tracking-wide">{item.name}</h3>
-                  <div className="text-[13px] mt-1 font-bold text-slate-500">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                     <h3 className="text-[20px] font-black text-slate-800 tracking-wide m-0 leading-tight">{item.name}</h3>
+                     {/* 顯示「含使用中」的小卡標示 */}
+                     {item.includeInUseQty && (
+                        <span className="bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm">
+                          + 含使用中
+                        </span>
+                     )}
+                  </div>
+                  <div className="text-[13px] font-bold text-slate-500">
                     安全庫存: <span className="text-blue-600 text-[15px]">{item.activeParLevel}</span> {item.unit}
                   </div>
                 </div>
