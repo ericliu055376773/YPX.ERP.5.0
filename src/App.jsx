@@ -1699,23 +1699,19 @@ function AdminOrderHistory({ ordersData, branches }) {
     
     setTimeout(async () => {
       try { 
-        // 加入更完整的參數，解決 LINE WebView 截圖問題
+        // 恢復成原本確定可以正常截圖的單純參數，移除會造成污染的 allowTaint 參數
         const canvas = await window.html2canvas(el, { 
-          scale: window.devicePixelRatio > 1 ? 2 : 1, 
+          scale: 1.5, 
           backgroundColor: '#ffffff', 
           useCORS: true, 
-          allowTaint: true, 
-          logging: false,
-          foreignObjectRendering: false, // 避免 SVG 導致的問題
-          removeContainer: true
+          logging: false 
         }); 
-        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9)); 
+        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.85)); 
       } catch (err) { 
-        // 截圖失敗時，依然跳出 Modal，但只顯示複製文字的選項
-        setExportImgUrl(null); // 確保是 null
+        setExportImgUrl(null); 
         showToast(`截圖被阻擋，已為您轉換為「純文字」格式`, 'error'); 
       }
-    }, 500); 
+    }, 400); 
   };
 
   return (
@@ -2213,23 +2209,19 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
     
     setTimeout(async () => {
       try { 
-        // 加入更完整的參數，解決 LINE WebView 截圖問題
+        // 恢復成原本確定可以正常截圖的單純參數，移除會造成污染的 allowTaint 參數
         const canvas = await window.html2canvas(el, { 
-          scale: window.devicePixelRatio > 1 ? 2 : 1, 
+          scale: 1.5, 
           backgroundColor: '#ffffff', 
           useCORS: true, 
-          allowTaint: true,
-          logging: false,
-          foreignObjectRendering: false, // 避免 SVG 導致的問題
-          removeContainer: true
+          logging: false 
         }); 
-        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9)); 
+        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.85)); 
       } catch (err) { 
-        // 截圖失敗時，依然跳出 Modal，但只顯示複製文字的選項
-        setExportImgUrl(null); // 確保是 null
+        setExportImgUrl(null); 
         showToast(`截圖被阻擋，已為您轉換為「純文字」格式`, 'error'); 
       }
-    }, 500); 
+    }, 400); 
   };
 
   if (purchaseOrders.length === 0) {
