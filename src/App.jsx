@@ -102,14 +102,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!document.getElementById('html2canvas-script')) {
-      const script = document.createElement('script');
-      script.id = 'html2canvas-script';
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-
     const initAuth = async () => {
       try { await signInAnonymously(auth); } catch (err) { console.error('Auth Error:', err); }
     };
@@ -255,7 +247,6 @@ export default function App() {
     }
   };
 
-  //  取得指定門店的庫存 (完美結合總部商品預設值與門店自訂設定)
   const getBranchInventory = (branchNameKey) => {
     const branchDoc = inventoryData[branchNameKey] || {};
     const branchSettings = branchDoc.settings || {};
@@ -266,7 +257,6 @@ export default function App() {
       const holidayPar = (bSetting.parLevelHoliday !== undefined && bSetting.parLevelHoliday !== '') ? bSetting.parLevelHoliday : (product.defaultParHoliday !== undefined ? product.defaultParHoliday : regularPar);
       return {
         ...product,
-        //  支援空字串，讓輸入框能被完全刪除清空
         currentStock: (bSetting.currentStock !== undefined && bSetting.currentStock !== null) ? bSetting.currentStock : '',
         parLevel: regularPar,
         parLevelHoliday: holidayPar,
@@ -530,17 +520,39 @@ function CustomDropdown({ value, onChange, options, className = "", buttonClassN
   );
 }
 
-function ImageExportModal({ imageUrl, onClose }) {
-  if (!imageUrl) return null;
+// 已經將 ImageExportModal 改為純文字複製專用的 TextExportModal
+function TextExportModal({ text, onClose }) {
+  if (!text) return null;
+
+  const handleCopyText = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('已成功複製叫貨內容！您可以直接貼上到 LINE');
+    } catch (err) {
+      // 備用複製方案 (針對不支援 Clipboard API 的舊版瀏覽器)
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        alert('已成功複製叫貨內容！您可以直接貼上到 LINE');
+      } catch (e) {
+        alert('複製失敗，請手動選取下方文字複製。');
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-slate-900/95 z-[100] flex flex-col items-center justify-center p-6 backdrop-blur-sm animate-in fade-in duration-200">
-       <div className="flex items-center gap-2 text-white font-bold mb-6 bg-slate-800 px-5 py-2.5 rounded-full shadow-lg">
-         <Download className="w-5 h-5 text-blue-400"/> 請對著下方圖片<span className="text-blue-400">長按儲存</span>或分享
+       <div className="w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl mb-4 overflow-y-auto max-h-[60vh]">
+         <pre className="text-[14px] font-bold text-slate-700 whitespace-pre-wrap font-mono leading-relaxed">{text}</pre>
        </div>
-       <div className="relative w-full max-w-sm max-h-[65vh] overflow-y-auto rounded-2xl shadow-2xl bg-white border-4 border-slate-700">
-         <img src={imageUrl} alt="匯出圖片" className="w-full h-auto block" style={{ WebkitTouchCallout: 'default', pointerEvents: 'auto' }} />
-       </div>
-       <button onClick={onClose} className="mt-8 bg-white/10 hover:bg-white/20 active:scale-95 text-white px-10 py-3.5 rounded-2xl font-bold transition-all border border-white/20">關閉視窗</button>
+       <button onClick={handleCopyText} className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white w-full max-w-sm py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg mb-3">
+         <Copy className="w-5 h-5" /> 點擊複製所有內容
+       </button>
+       <button onClick={onClose} className="bg-white/10 hover:bg-white/20 active:scale-95 text-white px-10 py-3.5 rounded-2xl font-bold transition-all border border-white/20 w-full max-w-sm">關閉視窗</button>
     </div>
   );
 }
@@ -1596,10 +1608,10 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
   );
 }
 
-function AdminOrderHistory({ ordersData, branches, showToast }) {
+function AdminOrderHistory({ ordersData, branches }) {
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterDate, setFilterDate] = useState('');
-  const [exportImgUrl, setExportImgUrl] = useState(null); 
+  const [exportText, setExportText] = useState(''); 
   
   const branchColors = useMemo(() => {
     const palettes = [
@@ -1641,33 +1653,17 @@ function AdminOrderHistory({ ordersData, branches, showToast }) {
   const uniqueBranchNames = useMemo(() => [...new Set(branches.map(b => b.branchName))].filter(Boolean), [branches]);
   const branchOptions = [{ value: 'all', label: '所有門店' }, ...uniqueBranchNames.map(name => ({ value: name, label: name }))];
 
-  const handleExportCard = async (elementId) => {
-    if (!window.html2canvas) { showToast('截圖元件載入中，請稍候', 'error'); return; }
-    const el = document.getElementById(elementId);
-    if (!el) { showToast('找不到該單據卡片', 'error'); return; }
-    
-    showToast('正在產生叫貨單圖片...', 'success');
-
-    setTimeout(async () => {
-      try { 
-        // 移除容易引發污染或跑版的額外參數，直接針對現有的卡片DOM進行截圖
-        const canvas = await window.html2canvas(el, { 
-          scale: window.devicePixelRatio > 1 ? 2 : 1, 
-          backgroundColor: '#ffffff', 
-          useCORS: true, 
-          logging: false 
-        }); 
-        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.9)); 
-      } catch (err) { 
-        console.error(err);
-        showToast('圖片產生失敗，請稍後再試', 'error'); 
-      } 
-    }, 400); 
+  const handleExportCard = (orderInfo, categoryStr, itemsList) => {
+    let fallbackStr = `【${orderInfo.branchName} 叫貨單】\n分類：${formatCategory(categoryStr)}\n日期：${orderInfo.date.split(' ')[0]}\n--------------------\n`;
+    itemsList.forEach(item => {
+      fallbackStr += `${item.name}： ${item.orderQty} ${item.unit}\n`;
+    });
+    setExportText(fallbackStr);
   };
 
   return (
     <div className="space-y-4">
-      {exportImgUrl && <ImageExportModal imageUrl={exportImgUrl} onClose={() => setExportImgUrl(null)} />}
+      {exportText && <TextExportModal text={exportText} onClose={() => setExportText('')} />}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3 items-center justify-between">
         <h3 className="font-bold text-slate-800 flex items-center gap-2 self-start md:self-auto"><Search className="w-5 h-5 text-blue-600" /> 進貨紀錄查詢</h3>
         <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto">
@@ -1698,15 +1694,13 @@ function AdminOrderHistory({ ordersData, branches, showToast }) {
                  if(aIsAb && !bIsAb) return -1;
                  if(!aIsAb && bIsAb) return 1;
                  return 0;
-              }).map(([category, items], catIdx) => {
-                const safeOrderId = order.id.replace(/[^a-zA-Z0-9-]/g, '');
-                const cardId = `admin-export-${safeOrderId}-cat-${catIdx}`;
+              }).map(([category, items]) => {
                 const isCatReceived = (order.receivedCategories || []).includes(category);
                 const isAbnormal = !!order.abnormalCategories?.[category];
                 
                 return (
-                  <div key={category} id={cardId} className={`border-2 rounded-[1.5rem] p-5 mb-4 shadow-sm relative transition-colors ${isAbnormal ? 'bg-[#fff5f5] border-red-300 ring-2 ring-red-100' : 'bg-[#fffdf8] border-[#fde6ca]'}`}>
-                     <button data-html2canvas-ignore="true" onClick={() => handleExportCard(cardId)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Download className="w-4 h-4" /></button>
+                  <div key={category} className={`border-2 rounded-[1.5rem] p-5 mb-4 shadow-sm relative transition-colors ${isAbnormal ? 'bg-[#fff5f5] border-red-300 ring-2 ring-red-100' : 'bg-[#fffdf8] border-[#fde6ca]'}`}>
+                     <button onClick={() => handleExportCard(order, category, items)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Copy className="w-4 h-4" /></button>
                      
                      <div className={`flex flex-col sm:flex-row sm:items-center justify-between mb-4 border-b pb-3 pr-12 gap-2 ${isAbnormal ? 'border-red-200' : 'border-orange-100/50'}`}>
                        <div className="flex items-center gap-3">
@@ -2141,29 +2135,14 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
 }
 
 function BranchOrderManagement({ purchaseOrders, showToast }) {
-  const [exportImgUrl, setExportImgUrl] = useState(null); 
+  const [exportText, setExportText] = useState(''); 
 
-  const handleExportCard = async (elementId) => {
-    if (!window.html2canvas) { showToast('截圖元件載入中，請稍候', 'error'); return; }
-    const el = document.getElementById(elementId);
-    if (!el) { showToast('找不到該單據卡片', 'error'); return; }
-    
-    showToast('正在為您產生圖檔...', 'success');
-    
-    setTimeout(async () => {
-      try { 
-        const canvas = await window.html2canvas(el, { 
-          scale: 1.5, 
-          backgroundColor: '#ffffff', 
-          useCORS: true, 
-          logging: false 
-        }); 
-        setExportImgUrl(canvas.toDataURL('image/jpeg', 0.85)); 
-      } catch (err) { 
-        console.error(err);
-        showToast('圖片產生失敗，請稍後再試', 'error'); 
-      }
-    }, 400); 
+  const handleExportCard = (orderInfo, categoryStr, itemsList) => {
+    let fallbackStr = `【${orderInfo.branchName} 叫貨單】\n分類：${formatCategory(categoryStr)}\n日期：${orderInfo.date.split(' ')[0]}\n--------------------\n`;
+    itemsList.forEach(item => {
+      fallbackStr += `${item.name}： ${item.orderQty} ${item.unit}\n`;
+    });
+    setExportText(fallbackStr);
   };
 
   if (purchaseOrders.length === 0) {
@@ -2172,7 +2151,7 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
 
   return (
     <div className="space-y-4 pt-2">
-      {exportImgUrl && <ImageExportModal imageUrl={exportImgUrl} onClose={() => setExportImgUrl(null)} />}
+      {exportText && <TextExportModal text={exportText} onClose={() => setExportText('')} />}
       <h2 className="text-[24px] font-black text-slate-800 mb-4 px-1">叫貨單總覽</h2>
       {purchaseOrders.map(order => {
         const groupedByCategory = order.items.reduce((acc, item) => {
@@ -2183,14 +2162,12 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
 
         return (
           <div key={order.id} className="mb-6 border-b-2 border-slate-100 pb-6 last:border-0 last:pb-0">
-            {Object.entries(groupedByCategory).map(([category, items], catIdx) => {
+            {Object.entries(groupedByCategory).map(([category, items]) => {
               const isCatReceived = (order.receivedCategories || []).includes(category);
-              const safeOrderId = order.id.replace(/[^a-zA-Z0-9-]/g, '');
-              const cardId = `branch-export-${safeOrderId}-cat-${catIdx}`;
 
               return (
-                <div key={category} id={cardId} className="bg-[#fffdf8] border-2 border-[#fde6ca] rounded-[1.5rem] p-5 mb-4 shadow-sm relative">
-                   <button data-html2canvas-ignore="true" onClick={() => handleExportCard(cardId)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-orange-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Download className="w-4 h-4" /></button>
+                <div key={category} className="bg-[#fffdf8] border-2 border-[#fde6ca] rounded-[1.5rem] p-5 mb-4 shadow-sm relative">
+                   <button onClick={() => handleExportCard(order, category, items)} className="absolute top-4 right-4 p-2 bg-white rounded-full text-slate-400 hover:text-blue-600 transition-colors shadow-sm border border-slate-200 active:scale-95"><Copy className="w-4 h-4" /></button>
                    
                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 border-b border-orange-100/50 pb-3 pr-12 gap-2">
                      <div>
