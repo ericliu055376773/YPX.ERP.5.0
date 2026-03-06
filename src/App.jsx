@@ -50,14 +50,23 @@ const adminUserSeed = { username: 'yan', password: 'yan0204', role: 'admin', bra
 
 const formatCategory = (category) => category ? category.replace(/[【】\[\]《》〈〉()]/g, '').trim() : '';
 
-// 智能判斷前日
+// 智能判斷明日
 const getEffectiveHolidayMode = (modeStr) => {
   if (modeStr === 'holiday') return true;
   if (modeStr === 'weekday') return false;
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1); 
-  const day = yesterday.getDay();
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1); 
+  const day = tomorrow.getDay();
   return day === 0 || day === 6; 
+};
+
+// 取得營業日字串 (以凌晨 4 點為跨日基準，避免半夜點貨被清空)
+const getBusinessDateString = () => {
+  const d = new Date();
+  const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+  const nd = new Date(utc + (3600000 * 8)); // 轉為台灣時間 (UTC+8)
+  nd.setHours(nd.getHours() - 4); // 凌晨 0~4 點歸屬前一日
+  return `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`;
 };
 
 // 取得依照設定排序的分類陣列
@@ -166,6 +175,52 @@ export default function App() {
 
     return () => { unsubUsers(); unsubProducts(); unsubInventory(); unsubOrders(); unsubSystem(); unsubOptions(); };
   }, [fbUser]);
+
+  // --- 每日自動歸零盤點庫存 (實有庫存清空) ---
+  useEffect(() => {
+    if (!fbUser || !user || Object.keys(inventoryData).length === 0) return;
+    
+    const todayStr = getBusinessDateString();
+    const branchesToReset = [];
+    
+    // 如果是總部，檢查所有分店；如果是門店，只檢查自己
+    if (user.role === 'admin') {
+       Object.keys(inventoryData).forEach(bId => {
+          if (bId !== 'settings' && bId !== 'options' && inventoryData[bId]?.lastStockResetDate !== todayStr) {
+             branchesToReset.push(bId);
+          }
+       });
+    } else if (user.branchName) {
+       if (inventoryData[user.branchName] && inventoryData[user.branchName].lastStockResetDate !== todayStr) {
+          branchesToReset.push(user.branchName);
+       }
+    }
+
+    // 執行歸零更新
+    branchesToReset.forEach(async (bId) => {
+       const docData = inventoryData[bId];
+       const newSettings = { ...docData.settings };
+       let hasChanges = false;
+       
+       if (newSettings) {
+         Object.keys(newSettings).forEach(pId => {
+            if (newSettings[pId].currentStock !== '' && newSettings[pId].currentStock !== undefined && newSettings[pId].currentStock !== null) {
+               newSettings[pId] = { ...newSettings[pId], currentStock: '' }; // 將庫存清空
+               hasChanges = true;
+            }
+         });
+       }
+       
+       if (hasChanges || docData.lastStockResetDate !== todayStr) {
+           const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, bId);
+           try {
+              await setDoc(docRef, { settings: newSettings, lastStockResetDate: todayStr }, { merge: true });
+           } catch (e) {
+              console.error("Auto reset error:", e);
+           }
+       }
+    });
+  }, [user, fbUser, inventoryData]);
 
   const handleAuth = async (e) => {
     e.preventDefault();
@@ -520,28 +575,34 @@ function CustomDropdown({ value, onChange, options, className = "", buttonClassN
   );
 }
 
-// 已經將 ImageExportModal 改為純文字複製專用的 TextExportModal
 function TextExportModal({ text, onClose }) {
+  const [copiedStatus, setCopiedStatus] = useState('');
+
   if (!text) return null;
 
   const handleCopyText = async () => {
     try {
-      await navigator.clipboard.writeText(text);
-      alert('已成功複製叫貨內容！您可以直接貼上到 LINE');
-    } catch (err) {
-      // 備用複製方案 (針對不支援 Clipboard API 的舊版瀏覽器)
-      const textArea = document.createElement("textarea");
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        alert('已成功複製叫貨內容！您可以直接貼上到 LINE');
-      } catch (e) {
-        alert('複製失敗，請手動選取下方文字複製。');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopiedStatus('success');
+        setTimeout(() => setCopiedStatus(''), 3000);
+        return;
       }
-      document.body.removeChild(textArea);
+    } catch (err) {}
+    
+    // 備用複製方案 (針對不支援 Clipboard API 的舊版瀏覽器)
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      setCopiedStatus('success');
+    } catch (e) {
+      setCopiedStatus('error');
     }
+    document.body.removeChild(textArea);
+    setTimeout(() => setCopiedStatus(''), 3000);
   };
 
   return (
@@ -549,8 +610,9 @@ function TextExportModal({ text, onClose }) {
        <div className="w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl mb-4 overflow-y-auto max-h-[60vh]">
          <pre className="text-[14px] font-bold text-slate-700 whitespace-pre-wrap font-mono leading-relaxed">{text}</pre>
        </div>
-       <button onClick={handleCopyText} className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white w-full max-w-sm py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg mb-3">
-         <Copy className="w-5 h-5" /> 點擊複製所有內容
+       {copiedStatus === 'error' && <div className="text-red-400 font-bold mb-3 text-sm">複製失敗，請手動選取上方文字複製。</div>}
+       <button onClick={handleCopyText} className={`${copiedStatus === 'success' ? 'bg-green-600 hover:bg-green-700 shadow-green-600/30' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/30'} active:scale-95 text-white w-full max-w-sm py-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg mb-3 transition-colors`}>
+         <Copy className="w-5 h-5" /> {copiedStatus === 'success' ? '✅ 已成功複製！可貼上到 LINE' : '點擊複製所有內容'}
        </button>
        <button onClick={onClose} className="bg-white/10 hover:bg-white/20 active:scale-95 text-white px-10 py-3.5 rounded-2xl font-bold transition-all border border-white/20 w-full max-w-sm">關閉視窗</button>
     </div>
@@ -750,11 +812,10 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
   const [editingProduct, setEditingProduct] = useState(null);
   const [editReorderMode, setEditReorderMode] = useState('diff'); 
   const [deletingProduct, setDeletingProduct] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
   
   const [newCatInput, setNewCatInput] = useState(''); 
-  
   const [newUnitInput, setNewUnitInput] = useState('');
-  
   const [newReorderUnitInput, setNewReorderUnitInput] = useState('');
 
   const [addProductCat, setAddProductCat] = useState(''); 
@@ -775,11 +836,15 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     showToast(`成功新增分類：${val}`);
   };
 
-  const handleRemoveCategory = async (valToRemove) => {
-    if(!fbUser) return;
-    if(!window.confirm(`確定要刪除分類選項「${valToRemove}」嗎？已經使用該分類的商品不會受到影響。`)) return;
-    const updatedOptions = { ...systemOptions, categories: (systemOptions.categories || []).filter(v => v !== valToRemove) };
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+  const handleRemoveCategory = (valToRemove) => {
+    setConfirmAction({
+      message: `確定要刪除分類選項「${valToRemove}」嗎？已經使用該分類的商品不會受到影響。`,
+      onConfirm: async () => {
+        if(!fbUser) return;
+        const updatedOptions = { ...systemOptions, categories: (systemOptions.categories || []).filter(v => v !== valToRemove) };
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+      }
+    });
   };
 
   const handleAddUnit = async () => {
@@ -800,20 +865,24 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     showToast(`成功新增盤點單位：${val}`);
   };
 
-  const handleRemoveUnit = async (uToRemove) => {
-    if(!fbUser) return;
-    if(!window.confirm(`確定要刪除該單位選項嗎？`)) return;
-    const updatedOptions = { 
-      ...systemOptions, 
-      units: (systemOptions.units || []).filter(u => {
-        if (typeof u === 'string' && typeof uToRemove === 'string') return u !== uToRemove;
-        if (typeof u === 'object' && typeof uToRemove === 'object') return u.name !== uToRemove.name || u.category !== uToRemove.category;
-        if (typeof u === 'string' && typeof uToRemove === 'object') return u !== uToRemove.name;
-        if (typeof u === 'object' && typeof uToRemove === 'string') return u.name !== uToRemove.name;
-        return true;
-      }) 
-    };
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+  const handleRemoveUnit = (uToRemove) => {
+    setConfirmAction({
+      message: `確定要刪除該單位選項嗎？`,
+      onConfirm: async () => {
+        if(!fbUser) return;
+        const updatedOptions = { 
+          ...systemOptions, 
+          units: (systemOptions.units || []).filter(u => {
+            if (typeof u === 'string' && typeof uToRemove === 'string') return u !== uToRemove;
+            if (typeof u === 'object' && typeof uToRemove === 'object') return u.name !== uToRemove.name || u.category !== uToRemove.category;
+            if (typeof u === 'string' && typeof uToRemove === 'object') return u !== uToRemove.name;
+            if (typeof u === 'object' && typeof uToRemove === 'string') return u.name !== uToRemove.name;
+            return true;
+          }) 
+        };
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+      }
+    });
   };
 
   const handleAddReorderUnit = async () => {
@@ -833,20 +902,24 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     showToast(`成功新增叫貨單位：${val}`);
   };
 
-  const handleRemoveReorderUnit = async (uToRemove) => {
-    if(!fbUser) return;
-    if(!window.confirm(`確定要刪除該叫貨單位選項嗎？`)) return;
-    const updatedOptions = { 
-      ...systemOptions, 
-      reorderUnits: (systemOptions.reorderUnits || []).filter(u => {
-        if (typeof u === 'string' && typeof uToRemove === 'string') return u !== uToRemove;
-        if (typeof u === 'object' && typeof uToRemove === 'object') return u.name !== uToRemove.name || u.category !== uToRemove.category;
-        if (typeof u === 'string' && typeof uToRemove === 'object') return u !== uToRemove.name;
-        if (typeof u === 'object' && typeof uToRemove === 'string') return u.name !== uToRemove.name;
-        return true;
-      }) 
-    };
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+  const handleRemoveReorderUnit = (uToRemove) => {
+    setConfirmAction({
+      message: `確定要刪除該叫貨單位選項嗎？`,
+      onConfirm: async () => {
+        if(!fbUser) return;
+        const updatedOptions = { 
+          ...systemOptions, 
+          reorderUnits: (systemOptions.reorderUnits || []).filter(u => {
+            if (typeof u === 'string' && typeof uToRemove === 'string') return u !== uToRemove;
+            if (typeof u === 'object' && typeof uToRemove === 'object') return u.name !== uToRemove.name || u.category !== uToRemove.category;
+            if (typeof u === 'string' && typeof uToRemove === 'object') return u !== uToRemove.name;
+            if (typeof u === 'object' && typeof uToRemove === 'string') return u.name !== uToRemove.name;
+            return true;
+          }) 
+        };
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), updatedOptions);
+      }
+    });
   };
 
   const handleAddProduct = async (e) => {
@@ -923,6 +996,20 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
 
   return (
     <div className="space-y-6 relative">
+      {confirmAction && (
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[110] p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-2xl">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><AlertCircle className="w-8 h-8"/></div>
+            <h3 className="text-xl font-black text-center text-slate-800 mb-2">請確認操作</h3>
+            <p className="text-center text-slate-500 font-medium mb-6">{confirmAction.message}</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl">取消</button>
+              <button onClick={() => { confirmAction.onConfirm(); setConfirmAction(null); }} className="flex-1 bg-red-600 text-white font-bold py-3.5 rounded-xl shadow-md">確定刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingProduct && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
@@ -1021,9 +1108,10 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       {deletingProduct && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-8 h-8"/></div>
             <h3 className="text-xl font-black text-center text-slate-800 mb-3">刪除商品</h3>
             <p className="text-center text-slate-500 font-medium mb-6">確定要刪除 <strong className="text-slate-700">{deletingProduct.name}</strong> 嗎？</p>
-            <div className="flex gap-2"><button onClick={() => setDeletingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button onClick={confirmDeleteProduct} className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors shadow-md flex items-center justify-center gap-1"><Trash2 className="w-4 h-4"/> 確定刪除</button></div>
+            <div className="flex gap-2"><button onClick={() => setDeletingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button onClick={confirmDeleteProduct} className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors shadow-md flex items-center justify-center gap-1">確定刪除</button></div>
           </div>
         </div>
       )}
@@ -2005,7 +2093,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
 
   const effectiveIsHoliday = getEffectiveHolidayMode(systemConfig.holidayMode);
   let modeText = systemConfig.holidayMode === 'auto' 
-    ? (effectiveIsHoliday ? '自動偵測 (前日為週末假日)' : '自動偵測 (前日為平日)')
+    ? (effectiveIsHoliday ? '自動偵測 (明日為週末假日)' : '自動偵測 (明日為平日)')
     : (effectiveIsHoliday ? '總部設定 (假日)' : '總部設定 (平日)');
 
   return (
@@ -2259,7 +2347,7 @@ function BranchReceivingCheck({ inventory, updateStockCloud, purchaseOrders, upd
     <div className="space-y-4 pt-2">
       {/* 異常回報 Modal */}
       {reportingCat && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm animate-in fade-in">
+        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[110] p-4 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
             <h3 className="text-xl font-black text-red-600 mb-2 flex items-center gap-2"><AlertTriangle className="w-6 h-6"/> 點收異常回報</h3>
             <p className="text-[15px] font-bold text-slate-600 mb-5 border-b border-slate-100 pb-3">單號分類：<span className="text-orange-600">{formatCategory(reportingCat.category)}</span></p>
@@ -2373,14 +2461,6 @@ function BranchReceivingCheck({ inventory, updateStockCloud, purchaseOrders, upd
                      </div>
                    </div>
                  );
-              }).sort((a, b) => {
-                 const catA = a.key;
-                 const catB = b.key;
-                 const aIsAb = order.abnormalCategories?.[catA];
-                 const bIsAb = order.abnormalCategories?.[catB];
-                 if(aIsAb && !bIsAb) return -1;
-                 if(!aIsAb && bIsAb) return 1;
-                 return 0;
               })}
             </div>
           </div>
