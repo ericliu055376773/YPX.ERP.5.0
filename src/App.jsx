@@ -97,13 +97,9 @@ export default function App() {
 
   const [user, setUser] = useState(null); 
   const [authMode, setAuthMode] = useState('login'); 
-  const [loginRole, setLoginRole] = useState('manager'); 
   const [toast, setToast] = useState(null);
 
-  const [showAdminHint, setShowAdminHint] = useState(false);
-  const [showSecretModal, setShowSecretModal] = useState(false);
-  const [secretInput, setSecretInput] = useState('');
-  const [secretStep, setSecretStep] = useState(1); 
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -230,77 +226,57 @@ export default function App() {
     const password = formData.get('password').trim();
     const branchName = formData.get('branchName')?.trim();
 
+    if (authMode === 'register') {
+      if (username === 'yan' || usersDb.some(u => u.username === username)) {
+        showToast('帳號已存在', 'error'); return;
+      }
+      const newUser = { username, password, role: 'manager', branchName, lat: '', lng: '' };
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, username), newUser);
+      setUser(newUser);
+      showToast(`點貨人員帳號註冊成功！`);
+    } else {
+      const existingUser = usersDb.find(u => 
+        u.username === username && 
+        u.password === password && 
+        (u.role === 'manager' || u.role === 'branch')
+      );
+
+      if (existingUser) {
+        setUser({ ...existingUser, role: 'manager' }); 
+        showToast(`點貨人員登入成功！`);
+      } else {
+        showToast('帳號或密碼錯誤，請重試', 'error');
+      }
+    }
+  };
+
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    if (!fbUser) { showToast('雲端連線中，請稍候', 'error'); return; }
+    const formData = new FormData(e.target);
+    const username = formData.get('username').trim();
+    const password = formData.get('password').trim();
+
     if (products.length === 0 && username === 'yan') {
       initialProducts.forEach(async (p) => {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, p.id.toString()), p);
       });
     }
 
-    if (authMode === 'register') {
-      if (loginRole === 'admin') {
-        showToast('為保護系統安全，總公司帳號無法在此直接註冊', 'error'); return;
+    if (username === 'yan' && password === 'yan0204') {
+      const adminObj = usersDb.find(u => u.username === 'yan') || adminUserSeed;
+      if (!usersDb.some(u => u.username === 'yan')) {
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, 'yan'), adminObj);
       }
-      if (username === 'yan' || usersDb.some(u => u.username === username)) {
-        showToast('帳號已存在', 'error'); return;
-      }
-      const newUser = { username, password, role: loginRole, branchName, lat: '', lng: '' };
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, username), newUser);
-      setUser(newUser);
-      showToast(`點貨人員帳號註冊成功！`);
+      setUser(adminObj);
+      setShowAdminLoginModal(false);
+      showToast('總管理處登入成功！');
     } else {
-      if (loginRole === 'admin' && username === 'yan' && password === 'yan0204') {
-        const adminObj = usersDb.find(u => u.username === 'yan') || adminUserSeed;
-        if (!usersDb.some(u => u.username === 'yan')) {
-          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, 'yan'), adminObj);
-        }
-        setUser(adminObj);
-        showToast('總管理處登入成功！');
-        return;
-      }
-      
-      const existingUser = usersDb.find(u => 
-        u.username === username && 
-        u.password === password && 
-        (u.role === loginRole || (loginRole === 'manager' && u.role === 'branch'))
-      );
-
-      if (existingUser) {
-        setUser({ ...existingUser, role: loginRole }); 
-        showToast(`點貨人員登入成功！`);
-      } else {
-        showToast('帳號、密碼或職級錯誤，請重試', 'error');
-      }
+      showToast('總部帳號或密碼錯誤', 'error');
     }
   };
 
   const logout = () => { setUser(null); showToast('已登出系統'); };
-
-  const handleSecretSubmit = (e) => {
-    e.preventDefault();
-    if (secretStep === 1) {
-      if (secretInput === '1021') {
-        setSecretStep(2);
-        setSecretInput('');
-      } else {
-        showToast('第一階段解鎖密碼錯誤', 'error'); 
-        setSecretInput('');
-        setSecretStep(1);
-        setShowSecretModal(false);
-      }
-    } else if (secretStep === 2) {
-      if (secretInput === '0204') { 
-        setShowAdminHint(true); 
-        setShowSecretModal(false); 
-        setSecretInput('');
-        setSecretStep(1);
-      } else {
-        showToast('第二階段解鎖密碼錯誤', 'error'); 
-        setSecretInput('');
-        setSecretStep(1);
-        setShowSecretModal(false);
-      }
-    }
-  };
 
   const getBranchInventory = (branchNameKey) => {
     const branchDoc = inventoryData[branchNameKey] || {};
@@ -346,7 +322,7 @@ export default function App() {
           <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden border border-slate-100 pb-4 relative">
             <div className="bg-slate-900 pt-10 pb-8 px-6 text-center rounded-b-3xl shadow-inner">
               <div 
-                onClick={() => { if(!showAdminHint) setShowSecretModal(true); else setShowAdminHint(false); }}
+                onClick={() => setShowAdminLoginModal(true)}
                 className="mx-auto bg-[#1a2130] w-24 h-24 rounded-[1.25rem] flex items-center justify-center mb-5 border border-white/20 shadow-xl cursor-pointer hover:bg-[#1f293d] active:scale-95 transition-all p-1.5 overflow-hidden"
               >
                 <img src="/logo.png" alt="Logo" className="w-full h-full object-contain mix-blend-screen" onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'block'; }} />
@@ -356,33 +332,17 @@ export default function App() {
               <p className="text-slate-400 mt-2 text-sm">雲端門店營運系統</p>
             </div>
             <div className="p-8">
-              {showAdminHint && (
-                <div className="mb-6 p-3 bg-blue-50 text-blue-800 rounded-xl border border-blue-100 text-sm flex items-start gap-2 shadow-sm">
-                  <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                  <p>總管理處登入：<br/>帳號 <strong>yan</strong> / 密碼 <strong>yan0204</strong><br/>(需先將職級切換為總公司)</p>
-                </div>
-              )}
-              
-              <h2 className="text-xl font-bold text-slate-800 mb-4 text-center">
-                {authMode === 'login' ? '系統登入' : '註冊新帳號'}
+              <h2 className="text-xl font-bold text-slate-800 mb-6 text-center">
+                {authMode === 'login' ? '門店點貨登入' : '註冊門店帳號'}
               </h2>
 
-              <div className="flex bg-slate-100 p-1.5 rounded-xl mb-6 shadow-inner">
-                <button type="button" onClick={() => setLoginRole('admin')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${loginRole === 'admin' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                  <ShieldAlert className="w-4 h-4"/> 總公司
-                </button>
-                <button type="button" onClick={() => setLoginRole('manager')} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${loginRole === 'manager' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                  <Store className="w-4 h-4"/> 點貨人員
-                </button>
-              </div>
-
               <form onSubmit={handleAuth} className="space-y-4">
-                {authMode === 'register' && loginRole !== 'admin' && (
+                {authMode === 'register' && (
                   <div><input required name="branchName" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="所屬門店名稱 (例如：斗六店)" /></div>
                 )}
                 <div><input required name="username" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="個人帳號" /></div>
                 <div><input required name="password" type="password" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="密碼" /></div>
-                <button type="submit" className={`w-full active:scale-95 text-white font-bold py-4 mt-2 rounded-xl transition-all shadow-md text-[16px] ${loginRole === 'admin' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' : 'bg-slate-900 hover:bg-slate-800 shadow-slate-900/20'}`}>
+                <button type="submit" className="w-full active:scale-95 text-white font-bold py-4 mt-2 rounded-xl transition-all shadow-md text-[16px] bg-slate-900 hover:bg-slate-800 shadow-slate-900/20">
                   {authMode === 'login' ? '登入系統' : '註冊帳號'}
                 </button>
               </form>
@@ -395,15 +355,17 @@ export default function App() {
               </div>
             </div>
           </div>
-          {showSecretModal && (
+          {showAdminLoginModal && (
             <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm transition-all">
               <div className="bg-white rounded-3xl p-6 w-full max-w-xs shadow-2xl">
-                <h3 className="text-lg font-bold text-slate-800 mb-4 text-center">顯示總部帳號 ({secretStep}/2)</h3>
-                <form onSubmit={handleSecretSubmit}>
-                  <input type="password" value={secretInput} onChange={(e) => setSecretInput(e.target.value)} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none mb-4 text-center tracking-widest text-[16px] font-bold" placeholder="請輸入解鎖碼" autoFocus />
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => {setShowSecretModal(false); setSecretInput(''); setSecretStep(1);}} className="flex-1 py-3.5 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
-                    <button type="submit" className="flex-1 bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-slate-800 shadow-md">確認</button>
+                <div className="mx-auto bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mb-4 text-blue-600"><ShieldAlert className="w-8 h-8" /></div>
+                <h3 className="text-xl font-black text-slate-800 mb-6 text-center">總管理處登入</h3>
+                <form onSubmit={handleAdminLogin} className="space-y-4">
+                  <input required name="username" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold" placeholder="總部帳號" autoFocus />
+                  <input required name="password" type="password" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold" placeholder="密碼" />
+                  <div className="flex gap-2 pt-2">
+                    <button type="button" onClick={() => setShowAdminLoginModal(false)} className="flex-1 py-3.5 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">取消</button>
+                    <button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 shadow-md">登入</button>
                   </div>
                 </form>
               </div>
