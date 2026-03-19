@@ -1111,7 +1111,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 className="w-8 h-8"/></div>
             <h3 className="text-xl font-black text-center text-slate-800 mb-3">刪除商品</h3>
             <p className="text-center text-slate-500 font-medium mb-6">確定要刪除 <strong className="text-slate-700">{deletingProduct.name}</strong> 嗎？</p>
-            <div className="flex gap-2"><button onClick={() => setDeletingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button onClick={confirmDeleteProduct} className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors shadow-md flex items-center justify-center gap-1">確定刪除</button></div>
+            <div className="flex gap-2"><button onClick={() => setDeletingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button onClick={confirmDeleteProduct} className="flex-1 bg-red-600 text-white font-bold py-3 rounded-xl hover:bg-red-700 transition-colors shadow-md flex items-center justify-center gap-1"><Trash2 className="w-4 h-4"/> 確定刪除</button></div>
           </div>
         </div>
       )}
@@ -1844,9 +1844,27 @@ function AdminAnalytics({ ordersData, branches, products, systemConfig }) {
   const [timeRange, setTimeRange] = useState('week'); 
   const [filterCategory, setFilterCategory] = useState('all'); 
   
+  // 動態抓取進貨紀錄中的所有月份
+  const monthOptions = useMemo(() => {
+    const months = new Set();
+    ordersData.forEach(o => {
+      const d = new Date(o.timestamp);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months.add(ym);
+    });
+    // 將月份由新到舊排序
+    return Array.from(months).sort((a, b) => b.localeCompare(a)).map(ym => {
+      const [y, m] = ym.split('-');
+      return { value: ym, label: `${y}年 ${parseInt(m)}月` };
+    });
+  }, [ordersData]);
+
   const timeOptions = [
     { value: 'week', label: '最近 7 天' },
-    { value: 'month', label: '最近 30 天' }
+    { value: 'month', label: '最近 30 天' },
+    { value: 'half_year', label: '最近半年' },
+    { value: 'year', label: '最近一年' },
+    ...monthOptions
   ];
 
   const uniqueBranchNames = useMemo(() => [...new Set(branches.map(b => b.branchName))].filter(Boolean), [branches]);
@@ -1857,12 +1875,24 @@ function AdminAnalytics({ ordersData, branches, products, systemConfig }) {
 
   const analyticsData = useMemo(() => {
     const now = Date.now();
-    const timeLimit = timeRange === 'week' ? 7 * 24 * 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
     const validOrders = ordersData.filter(o => {
       if (filterBranch !== 'all' && o.branchName !== filterBranch) return false;
-      if (now - o.timestamp > timeLimit) return false;
-      return true;
+      
+      const orderDate = new Date(o.timestamp);
+      
+      // 根據選取的時間區間進行過濾
+      if (timeRange === 'week') return (now - o.timestamp) <= 7 * 24 * 60 * 60 * 1000;
+      if (timeRange === 'month') return (now - o.timestamp) <= 30 * 24 * 60 * 60 * 1000;
+      if (timeRange === 'half_year') return (now - o.timestamp) <= 180 * 24 * 60 * 60 * 1000;
+      if (timeRange === 'year') return (now - o.timestamp) <= 365 * 24 * 60 * 60 * 1000;
+      
+      // 判斷是否為特定月份 (例如 "2026-03")
+      const ym = `${orderDate.getFullYear()}-${String(orderDate.getMonth() + 1).padStart(2, '0')}`;
+      if (timeRange === ym) return true;
+
+      return false;
     });
+    
     const totals = {};
     validOrders.forEach(o => { 
       o.items.forEach(item => { 
@@ -1945,8 +1975,7 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
 
   const tabs = [
     { id: 'inventory', icon: <ClipboardList />, label: '盤點' },
-    ...(isManager ? [{ id: 'orders', icon: <ShoppingCart />, label: '叫貨' }] : []),
-    { id: 'receiving', icon: <Truck />, label: '進貨' }
+    ...(isManager ? [{ id: 'orders', icon: <ShoppingCart />, label: '叫貨' }] : [])
   ];
 
   const updateStockCloud = async (productId, newStockValue) => {
@@ -1964,28 +1993,6 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_ORDERS, newOrderData.id), orderDoc);
   };
 
-  const updateOrderPartialReceiptCloud = async (orderId, receivedCategories, newStatus) => {
-    if(!fbUser) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_ORDERS, orderId), { 
-      receivedCategories, 
-      status: newStatus 
-    });
-  };
-
-  const reportAbnormalCloud = async (orderId, category, data) => {
-    if(!fbUser) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_ORDERS, orderId), { 
-      [`abnormalCategories.${category}`]: data 
-    });
-  };
-
-  const resolveAbnormalCloud = async (orderId, category) => {
-    if(!fbUser) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_ORDERS, orderId), { 
-      [`abnormalCategories.${category}`]: deleteField() 
-    });
-  };
-
   const hiddenCategories = inventoryData[user.branchName]?.hiddenCategories || [];
   const branchAnnouncement = inventoryData[user.branchName]?.announcement || '';
 
@@ -2001,7 +2008,6 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
         </div>
         {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
-        {activeTab === 'receiving' && <BranchReceivingCheck inventory={branchInventory} updateStockCloud={updateStockCloud} purchaseOrders={branchOrders} updateOrderPartialReceiptCloud={updateOrderPartialReceiptCloud} reportAbnormalCloud={reportAbnormalCloud} resolveAbnormalCloud={resolveAbnormalCloud} showToast={showToast} />}
       </div>
       <BottomNav tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} themeColor={isManager ? 'text-orange-600' : 'text-green-600'} />
     </>
@@ -2280,189 +2286,6 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
                 </div>
               );
             })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function BranchReceivingCheck({ inventory, updateStockCloud, purchaseOrders, updateOrderPartialReceiptCloud, reportAbnormalCloud, resolveAbnormalCloud, showToast }) {
-  const [reportingCat, setReportingCat] = useState(null); 
-  const [abnormalRemark, setAbnormalRemark] = useState('');
-  const [abnormalPhoto, setAbnormalPhoto] = useState(null);
-
-  const pendingOrders = purchaseOrders.filter(o => o.status !== 'received');
-
-  // 將包含異常的訂單置頂
-  const sortedPendingOrders = useMemo(() => {
-    return [...pendingOrders].sort((a, b) => {
-      const aAbnormal = a.abnormalCategories ? Object.keys(a.abnormalCategories).length > 0 : false;
-      const bAbnormal = b.abnormalCategories ? Object.keys(b.abnormalCategories).length > 0 : false;
-      if (aAbnormal && !bAbnormal) return -1;
-      if (!aAbnormal && bAbnormal) return 1;
-      return 0; // 若狀態相同，保留原本由新到舊的排序
-    });
-  }, [pendingOrders]);
-
-  const handleReceiveCategory = async (order, category, itemsInCategory) => {
-    for (const orderItem of itemsInCategory) {
-      const invItem = inventory.find(i => i.id === orderItem.id);
-      if (invItem) {
-        const current = parseFloat(invItem.currentStock) || 0;
-        const newTotal = current + parseFloat(orderItem.orderQty);
-        await updateStockCloud(orderItem.id, newTotal);
-      }
-    }
-    const currentReceived = order.receivedCategories || [];
-    const updatedReceived = [...currentReceived, category];
-    const allCategoriesInOrder = [...new Set(order.items.map(i => i.category))];
-    const isFullyReceived = allCategoriesInOrder.every(cat => updatedReceived.includes(cat));
-    const newStatus = isFullyReceived ? 'received' : 'partial';
-
-    await updateOrderPartialReceiptCloud(order.id, updatedReceived, newStatus);
-    showToast(`${formatCategory(category)} 已確認入庫！`);
-  };
-
-  const submitAbnormal = async () => {
-    if (!reportingCat) return;
-    await reportAbnormalCloud(reportingCat.order.id, reportingCat.category, {
-      remark: abnormalRemark,
-      photo: abnormalPhoto,
-      timestamp: Date.now()
-    });
-    showToast(`${formatCategory(reportingCat.category)} 已回報異常，訂單已置頂！`, 'error');
-    closeAbnormalModal();
-  };
-
-  const closeAbnormalModal = () => {
-    setReportingCat(null);
-    setAbnormalRemark('');
-    setAbnormalPhoto(null);
-  };
-
-  if (pendingOrders.length === 0) return (<div className="text-center py-20 bg-white rounded-3xl mt-4 mx-1"><CheckCircle2 className="w-16 h-16 text-green-300 mx-auto mb-4" /><h2 className="text-xl font-bold text-slate-700">沒有待核對進貨單</h2></div>);
-
-  return (
-    <div className="space-y-4 pt-2">
-      {/* 異常回報 Modal */}
-      {reportingCat && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[110] p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <h3 className="text-xl font-black text-red-600 mb-2 flex items-center gap-2"><AlertTriangle className="w-6 h-6"/> 點收異常回報</h3>
-            <p className="text-[15px] font-bold text-slate-600 mb-5 border-b border-slate-100 pb-3">單號分類：<span className="text-orange-600">{formatCategory(reportingCat.category)}</span></p>
-            <div className="space-y-4">
-              <div>
-                <label className="text-[13px] font-bold text-slate-500 mb-1.5 block">異常狀況說明 (可輸入缺貨/數量不符...)</label>
-                <textarea value={abnormalRemark} onChange={e => setAbnormalRemark(e.target.value)} rows="3" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-[16px] font-bold text-slate-800 shadow-inner resize-none" placeholder="例如：高麗菜少送兩箱..."></textarea>
-              </div>
-              <div>
-                <label className="text-[13px] font-bold text-slate-500 mb-1.5 block flex items-center gap-1"><Camera className="w-4 h-4"/> 拍照存證 (選填)</label>
-                <input type="file" accept="image/*" capture="environment" onChange={(e) => {
-                  const file = e.target.files[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (e) => setAbnormalPhoto(e.target.result);
-                    reader.readAsDataURL(file);
-                  }
-                }} className="w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-red-50 file:text-red-700 hover:file:bg-red-100 cursor-pointer transition-colors" />
-                {abnormalPhoto && <img src={abnormalPhoto} alt="預覽" className="mt-3 w-full h-40 object-contain rounded-xl border border-slate-200 bg-slate-50 shadow-inner" />}
-              </div>
-              <div className="flex gap-2 pt-3 mt-2 border-t border-slate-100">
-                <button onClick={closeAbnormalModal} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 font-bold rounded-xl transition-all">取消</button>
-                <button onClick={submitAbnormal} className="flex-1 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold py-3.5 rounded-xl shadow-md transition-all">確認回報</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <h2 className="text-[24px] font-black text-slate-800 mb-2 px-1">進貨點收</h2>
-      <p className="text-xs font-medium text-slate-500 mb-6 px-1">請依分類核對，廠商分批到貨時可直接「點收單一分類」。</p>
-      
-      {sortedPendingOrders.map(order => {
-        const groupedByCategory = order.items.reduce((acc, item) => {
-          if (!acc[item.category]) acc[item.category] = [];
-          acc[item.category].push(item);
-          return acc;
-        }, {});
-
-        const pendingCategories = Object.entries(groupedByCategory).filter(
-          ([category]) => !(order.receivedCategories || []).includes(category)
-        );
-
-        if (pendingCategories.length === 0) return null;
-        
-        const hasAnyAbnormal = order.abnormalCategories && Object.keys(order.abnormalCategories).length > 0;
-
-        return (
-          <div key={order.id} className="mb-12 relative">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <div className="flex items-center gap-3">
-                <div className={`text-white p-2.5 rounded-2xl shadow-lg ${hasAnyAbnormal ? 'bg-red-600 shadow-red-600/20' : 'bg-slate-800 shadow-slate-800/20'}`}>
-                  {hasAnyAbnormal ? <AlertTriangle className="w-6 h-6 text-white" /> : <Truck className="w-6 h-6 text-orange-400" />}
-                </div>
-                <div>
-                  <div className="text-[12px] font-bold text-slate-400 mb-0.5">{hasAnyAbnormal ? '有異常點收單 (已置頂)' : '進貨點收單'}</div>
-                  <div className="flex items-baseline gap-2"><h3 className={`text-[22px] font-black leading-none ${hasAnyAbnormal ? 'text-red-600' : 'text-slate-800'}`}>{order.id}</h3><span className="text-[13px] font-bold text-slate-500">{order.date.split(' ')[0]}</span></div>
-                </div>
-              </div>
-            </div>
-
-            <div className={`border-2 p-3 rounded-[2rem] shadow-sm ${hasAnyAbnormal ? 'bg-[#fff5f5] border-red-200' : 'bg-[#fffdf8] border-[#fde6ca]'}`}>
-              {pendingCategories.map(([category, items]) => {
-                 const abnormalData = order.abnormalCategories?.[category];
-                 const isAbnormal = !!abnormalData;
-                 
-                 return (
-                   <div key={category} className={`rounded-3xl shadow-sm border overflow-hidden mb-3 last:mb-0 transition-colors ${isAbnormal ? 'bg-white border-red-300 ring-2 ring-red-100' : 'bg-white border-slate-200'}`}>
-                     <div className={`p-3.5 flex items-center justify-between border-b ${isAbnormal ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
-                       <div className="flex items-center gap-2">
-                         <Layers className={`w-4 h-4 ${isAbnormal ? 'text-red-500' : 'text-orange-500'}`} />
-                         <h3 className={`font-black text-[16px] ${isAbnormal ? 'text-red-700' : 'text-slate-800'}`}>{formatCategory(category)}</h3>
-                       </div>
-                       {isAbnormal && <span className="bg-red-500 text-white px-2 py-0.5 rounded text-[11px] font-bold animate-pulse">異常處理中</span>}
-                     </div>
-                     
-                     <div className="p-3.5 bg-white">
-                       <div className="flex flex-col gap-1">
-                         {items.map((item, idx) => (
-                           <div key={idx} className="flex justify-between items-center px-1.5 py-2 hover:bg-slate-50 rounded-xl transition-colors border-b border-slate-50 last:border-0">
-                             <span className="font-bold text-slate-700 text-[16px]">{item.name}</span>
-                             <div className="font-black text-[20px] text-slate-800">{item.orderQty} <span className="text-[13px] font-medium text-slate-500">{item.unit}</span></div>
-                           </div>
-                         ))}
-                       </div>
-                     </div>
-                     
-                     {isAbnormal && (
-                       <div className="px-3.5 py-3 bg-red-50/30 border-t border-red-100">
-                         <h4 className="font-bold text-red-700 text-[13px] mb-1.5 flex items-center gap-1"><MessageSquare className="w-4 h-4"/> 異常備註：</h4>
-                         <p className="text-red-900 text-[15px] font-bold mb-2 bg-white p-2.5 rounded-xl border border-red-100 leading-relaxed">{abnormalData.remark || '無備註'}</p>
-                         {abnormalData.photo && <img src={abnormalData.photo} alt="異常照片" className="w-full max-w-[200px] h-auto rounded-xl border border-red-200 object-contain shadow-sm mt-2" />}
-                       </div>
-                     )}
-
-                     <div className={`p-3 border-t flex gap-2 ${isAbnormal ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
-                       {isAbnormal ? (
-                         <button onClick={() => resolveAbnormalCloud(order.id, category)} className="w-full bg-green-500 hover:bg-green-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl flex justify-center items-center gap-2 transition-all shadow-md text-[15px]">
-                           <CheckCircle2 className="w-5 h-5" /> 點貨正常 (已修復)
-                         </button>
-                       ) : (
-                         <>
-                           <button onClick={() => setReportingCat({ order, category })} className="w-1/3 bg-red-50 hover:bg-red-100 active:scale-95 text-red-600 font-bold py-3.5 rounded-2xl flex justify-center items-center gap-1.5 transition-all shadow-sm border border-red-200 text-[14px]">
-                             <AlertTriangle className="w-4 h-4" /> 異常
-                           </button>
-                           <button onClick={() => handleReceiveCategory(order, category, items)} className="w-2/3 bg-orange-600 hover:bg-orange-700 active:scale-95 text-white font-bold py-3.5 rounded-2xl flex justify-center items-center gap-2 transition-all shadow-sm text-[15px]">
-                             <CheckCircle2 className="w-5 h-5" /> 點收 {formatCategory(category)}
-                           </button>
-                         </>
-                       )}
-                     </div>
-                   </div>
-                 );
-              })}
-            </div>
           </div>
         );
       })}
