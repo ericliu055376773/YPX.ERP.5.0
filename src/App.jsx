@@ -230,10 +230,10 @@ export default function App() {
       if (username === 'yan' || usersDb.some(u => u.username === username)) {
         showToast('帳號已存在', 'error'); return;
       }
-      const newUser = { username, password, role: 'manager', branchName, lat: '', lng: '' };
+      const newUser = { username, password, role: 'manager', branchName, lat: '', lng: '', status: 'pending' };
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, username), newUser);
-      setUser(newUser);
-      showToast(`點貨人員帳號註冊成功！`);
+      showToast(`帳號註冊成功！請等待總公司審核開通。`);
+      setAuthMode('login');
     } else {
       const existingUser = usersDb.find(u => 
         u.username === username && 
@@ -242,6 +242,10 @@ export default function App() {
       );
 
       if (existingUser) {
+        if (existingUser.status === 'pending') {
+          showToast('帳號審核中，請等待總管理處開通', 'error');
+          return;
+        }
         setUser({ ...existingUser, role: 'manager' }); 
         showToast(`點貨人員登入成功！`);
       } else {
@@ -1309,6 +1313,9 @@ function AdminBranchManager({ branches, showToast, fbUser, db, appId }) {
   const [showPasswords, setShowPasswords] = useState({});
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
+  const pendingBranches = branches.filter(b => b.status === 'pending');
+  const approvedBranches = branches.filter(b => b.status !== 'pending');
+
   const startEdit = (b) => {
     setEditId(b.username);
     setEditForm({ 
@@ -1335,16 +1342,46 @@ function AdminBranchManager({ branches, showToast, fbUser, db, appId }) {
     setConfirmDeleteId(null);
   };
 
+  const approveBranch = async (username) => {
+    if(!fbUser) return;
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_USERS, username), { status: 'approved' });
+    showToast('門店帳號已核准開通！');
+  };
+
   if (branches.length === 0) return <div className="text-center py-20 bg-white rounded-3xl mx-4 shadow-sm border border-slate-200"><Store className="w-16 h-16 text-slate-200 mx-auto mb-4" /><h2 className="text-xl font-bold text-slate-700">目前尚無註冊的門店</h2></div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2">
         <Users className="w-5 h-5 text-blue-600" />
         <h3 className="font-bold text-slate-800">門店帳號與權限 (職級) 管理</h3>
       </div>
+
+      {pendingBranches.length > 0 && (
+        <div className="bg-orange-50 border-2 border-orange-200 rounded-[2rem] p-5 shadow-sm">
+          <h4 className="font-black text-orange-800 mb-4 flex items-center gap-2"><ShieldAlert className="w-5 h-5" /> 待審核的新註冊門店</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {pendingBranches.map(b => (
+              <div key={b.username} className="bg-white p-4 rounded-2xl shadow-sm border border-orange-100 flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h5 className="font-black text-slate-800 text-[16px]">{b.branchName}</h5>
+                    <span className="text-[12px] font-bold text-slate-500">帳號: {b.username}</span>
+                  </div>
+                  <span className="bg-orange-100 text-orange-600 text-[11px] px-2 py-1 rounded-lg font-bold animate-pulse">等待開通</span>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <button onClick={() => executeDelete(b.username)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl text-sm transition-colors hover:bg-red-50 hover:text-red-600">拒絕並刪除</button>
+                  <button onClick={() => approveBranch(b.username)} className="flex-1 py-2.5 bg-orange-500 text-white font-bold rounded-xl text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4"/> 核准開通</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {branches.map(b => {
+        {approvedBranches.map(b => {
           const currentRole = b.role === 'branch' ? 'manager' : (b.role || 'manager');
           return (
             <div key={b.username} className={`bg-white p-5 rounded-[2rem] shadow-sm border-2 flex flex-col gap-4 transition-colors border-orange-100`}>
