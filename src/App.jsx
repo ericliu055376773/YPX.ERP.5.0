@@ -50,14 +50,42 @@ const adminUserSeed = { username: 'yan', password: 'yan0204', role: 'admin', bra
 
 const formatCategory = (category) => category ? category.replace(/[【】\[\]《》〈〉()]/g, '').trim() : '';
 
-// 智能判斷明日
+// 台灣行政院行事曆快取
+let twHolidaySet = new Set();
+let twHolidaysLoaded = false;
+
+const fetchTWHolidays = async () => {
+  if (twHolidaysLoaded) return;
+  try {
+    const year = new Date().getFullYear();
+    for (const y of [year, year + 1]) {
+      const res = await fetch(`https://cdn.jsdelivr.net/gh/ruyut/TaiwanCalendar/data/${y}.json`);
+      if (res.ok) {
+        const data = await res.json();
+        data.forEach(d => { if (d.isHoliday) twHolidaySet.add(d.date); });
+      }
+    }
+    twHolidaysLoaded = true;
+    console.log(`✅ 已載入台灣行事曆，共 ${twHolidaySet.size} 個假日`);
+  } catch (e) {
+    console.warn('⚠️ 行事曆載入失敗，使用週六日備援判斷', e);
+  }
+};
+
+// 智能判斷明日 (優先使用行政院行事曆，含國定假日)
 const getEffectiveHolidayMode = (modeStr) => {
   if (modeStr === 'holiday') return true;
   if (modeStr === 'weekday') return false;
   const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1); 
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  // 優先：行政院行事曆
+  if (twHolidaysLoaded && twHolidaySet.size > 0) {
+    const dateStr = `${tomorrow.getFullYear()}${String(tomorrow.getMonth()+1).padStart(2,'0')}${String(tomorrow.getDate()).padStart(2,'0')}`;
+    return twHolidaySet.has(dateStr);
+  }
+  // 備援：週六日
   const day = tomorrow.getDay();
-  return day === 0 || day === 6; 
+  return day === 0 || day === 6;
 };
 
 // 取得營業日字串 (以凌晨 4 點為跨日基準，避免半夜點貨被清空)
@@ -107,6 +135,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    fetchTWHolidays(); // 啟動時載入行政院行事曆
     const initAuth = async () => {
       try { await signInAnonymously(auth); } catch (err) { console.error('Auth Error:', err); }
     };
@@ -332,7 +361,7 @@ export default function App() {
                 <img src="/logo.png" alt="Logo" className="w-full h-full object-contain mix-blend-screen" onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'block'; }} />
                 <Utensils className="text-orange-500 w-10 h-10 hidden" />
               </div>
-              <h1 className="text-2xl font-bold text-white tracking-wider">一品香 ERP</h1>
+              <h1 className="text-2xl font-bold text-white tracking-wider">點貨軟體</h1>
               <p className="text-slate-400 mt-2 text-sm">雲端門店營運系統</p>
             </div>
             <div className="p-8">
@@ -407,7 +436,7 @@ export default function App() {
             <div className="p-6 border-b border-slate-800">
               <div className={`flex items-center gap-3 mb-1 ${user.role === 'admin' ? 'text-blue-500' : 'text-orange-500'}`}>
                 <Utensils className="w-6 h-6" />
-                <span className="font-bold text-xl tracking-wider">一品香 ERP</span>
+                <span className="font-bold text-xl tracking-wider">點貨軟體</span>
               </div>
               <p className="text-slate-400 text-sm flex items-center gap-2 mt-2 font-medium">
                 {user.role === 'admin' ? <ShieldAlert className="w-4 h-4" /> : <Store className="w-4 h-4" />} 
@@ -626,7 +655,7 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
   return (
     <>
       <div className="p-3 md:p-8 max-w-4xl mx-auto w-full">
-        <div className="hidden md:flex space-x-2 mb-8 bg-slate-200/50 p-1.5 rounded-xl w-max">
+        <div className="hidden md:flex space-x-2 mb-8 bg-slate-200/50 p-1.5 rounded-xl w-full overflow-x-auto">
            {tabs.map(t => (
              <button key={t.id} onClick={() => setActiveTab(t.id)} className={`px-5 py-2.5 rounded-lg font-bold transition-all ${activeTab === t.id ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
                <div className="flex items-center gap-2">{React.cloneElement(t.icon, { className: 'w-4 h-4' })} {t.label}</div>
@@ -1091,9 +1120,9 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <input 
               value={newCatInput} onChange={e => setNewCatInput(e.target.value)} 
               type="text" placeholder="輸入新分類..." 
-              className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold shadow-inner" 
+              className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm font-bold shadow-inner" 
             />
-            <button onClick={handleAddCategory} className="bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold px-4 py-2 rounded-xl transition-colors shadow-sm text-sm">新增</button>
+            <button onClick={handleAddCategory} className="flex-shrink-0 bg-blue-100 hover:bg-blue-200 text-blue-700 font-bold px-3 py-2 rounded-xl transition-colors shadow-sm text-sm whitespace-nowrap">新增</button>
           </div>
           <div className="flex flex-wrap gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-100 flex-1 content-start">
             {(systemOptions.categories || []).map((c, i) => (
@@ -1109,8 +1138,8 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <Package className="w-5 h-5 text-orange-500"/> 自訂盤點單位
           </h4>
           <div className="flex gap-2 mb-3">
-            <input value={newUnitInput} onChange={e => setNewUnitInput(e.target.value)} type="text" placeholder="如: 顆..." className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-bold shadow-inner" />
-            <button onClick={handleAddUnit} className="bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-4 py-2 rounded-xl transition-colors shadow-sm text-sm">新增</button>
+            <input value={newUnitInput} onChange={e => setNewUnitInput(e.target.value)} type="text" placeholder="如: 顆..." className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-sm font-bold shadow-inner" />
+            <button onClick={handleAddUnit} className="flex-shrink-0 bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold px-3 py-2 rounded-xl transition-colors shadow-sm text-sm whitespace-nowrap">新增</button>
           </div>
           <div className="flex flex-wrap gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-100 flex-1 content-start">
             {(systemOptions.units || []).map((u, i) => {
@@ -1131,8 +1160,8 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <Truck className="w-5 h-5 text-indigo-500"/> 自訂叫貨單位
           </h4>
           <div className="flex gap-2 mb-3">
-            <input value={newReorderUnitInput} onChange={e => setNewReorderUnitInput(e.target.value)} type="text" placeholder="如: 箱..." className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold shadow-inner" />
-            <button onClick={handleAddReorderUnit} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold px-4 py-2 rounded-xl transition-colors shadow-sm text-sm">新增</button>
+            <input value={newReorderUnitInput} onChange={e => setNewReorderUnitInput(e.target.value)} type="text" placeholder="如: 箱..." className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-bold shadow-inner" />
+            <button onClick={handleAddReorderUnit} className="flex-shrink-0 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-bold px-3 py-2 rounded-xl transition-colors shadow-sm text-sm whitespace-nowrap">新增</button>
           </div>
           <div className="flex flex-wrap gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-100 flex-1 content-start">
             {(systemOptions.reorderUnits || []).map((u, i) => {
@@ -1751,12 +1780,12 @@ function AdminOrderHistory({ ordersData, branches }) {
   return (
     <div className="space-y-4">
       {exportText && <TextExportModal text={exportText} onClose={() => setExportText('')} />}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3 items-center justify-between">
-        <h3 className="font-bold text-slate-800 flex items-center gap-2 self-start md:self-auto"><Search className="w-5 h-5 text-blue-600" /> 進貨紀錄查詢</h3>
-        <div className="flex flex-col sm:flex-row items-center gap-2 w-full md:w-auto">
-          <CustomDropdown value={filterBranch} onChange={setFilterBranch} options={branchOptions} className="w-full sm:flex-1 md:flex-none min-w-[140px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700" />
-          <div className="flex w-full gap-2">
-            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="flex-1 w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-[16px] text-slate-700 focus:ring-2 focus:ring-blue-500" />
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col gap-3">
+        <h3 className="font-bold text-slate-800 flex items-center gap-2"><Search className="w-5 h-5 text-blue-600" /> 進貨紀錄查詢</h3>
+        <div className="flex flex-col gap-2 w-full">
+          <CustomDropdown value={filterBranch} onChange={setFilterBranch} options={branchOptions} className="w-full" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700" />
+          <div className="flex w-full gap-2 min-w-0">
+            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="flex-1 min-w-0 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-[15px] text-slate-700 focus:ring-2 focus:ring-blue-500" />
             {(filterBranch !== 'all' || filterDate) && (<button onClick={() => {setFilterBranch('all'); setFilterDate('');}} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors text-sm font-bold whitespace-nowrap">清除</button>)}
           </div>
         </div>
@@ -1998,7 +2027,7 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
   return (
     <>
       <div className="p-3 md:p-8 max-w-4xl mx-auto w-full">
-         <div className="hidden md:flex space-x-2 mb-8 bg-slate-200/50 p-1.5 rounded-xl w-max">
+         <div className="hidden md:flex space-x-2 mb-8 bg-slate-200/50 p-1.5 rounded-xl w-full overflow-x-auto">
            {tabs.map(t => (
              <button key={t.id} onClick={() => setActiveTab(t.id)} className={`px-5 py-2.5 rounded-lg font-bold transition-all ${activeTab === t.id ? (isManager ? 'bg-white text-orange-600 shadow-sm' : 'bg-white text-green-600 shadow-sm') : 'text-slate-500 hover:text-slate-700'}`}>
                <div className="flex items-center gap-2">{React.cloneElement(t.icon, { className: 'w-4 h-4' })} {t.label}</div>
