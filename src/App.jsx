@@ -38,12 +38,12 @@ const DB_SYSTEM = 'hotpot_system';
 
 // --- Initial Master Data ---
 const initialProducts = [
-  { id: 'p1', category: '蔬果類', name: '高麗菜', unit: '顆', defaultPar: 50, defaultReorderQty: 1, defaultReorderUnit: '件', order: 1 },
-  { id: 'p2', category: '蔬果類', name: '大白菜', unit: '顆', defaultPar: 30, order: 2 },
-  { id: 'p3', category: '蔬果類', name: '金針菇', unit: '包', defaultPar: 100, order: 3 },
-  { id: 'p6', category: '肉類', name: '特級雪花牛', unit: '公斤', defaultPar: 20, order: 4 },
-  { id: 'p7', category: '肉類', name: '台灣梅花豬', unit: '公斤', defaultPar: 25, order: 5 },
-  { id: 'p10', category: '海鮮與火鍋料', name: '大白蝦', unit: '盒', defaultPar: 20, order: 6 },
+  { id: 'p1', category: '蔬果類', name: '高麗菜', code: 'V001', unit: '顆', defaultPar: 50, defaultReorderQty: 1, defaultReorderUnit: '件', order: 1 },
+  { id: 'p2', category: '蔬果類', name: '大白菜', code: 'V002', unit: '顆', defaultPar: 30, order: 2 },
+  { id: 'p3', category: '蔬果類', name: '金針菇', code: 'V003', unit: '包', defaultPar: 100, order: 3 },
+  { id: 'p6', category: '肉類', name: '特級雪花牛', code: 'M001', unit: '公斤', defaultPar: 20, order: 4 },
+  { id: 'p7', category: '肉類', name: '台灣梅花豬', code: 'M002', unit: '公斤', defaultPar: 25, order: 5 },
+  { id: 'p10', category: '海鮮與火鍋料', name: '大白蝦', code: 'S001', unit: '盒', defaultPar: 20, order: 6 },
 ];
 
 const adminUserSeed = { username: 'yan', password: 'yan0204', role: 'admin', branchName: '總管理處' };
@@ -928,6 +928,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     const id = Date.now().toString();
     const newProduct = {
       id, category: addProductCat, name: newName,
+      code: (formData.get('code') || '').trim().toUpperCase(),
       unit: formData.get('unit').trim(), 
       defaultPar: parseFloat(formData.get('defaultPar')) || 0,
       defaultParHoliday: parseFloat(formData.get('defaultParHoliday')) || 0,
@@ -954,6 +955,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     }
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, editingProduct.id), {
       name: newName, 
+      code: (formData.get('code') || '').trim().toUpperCase(),
       category: newCategory, 
       unit: formData.get('unit').trim(), 
       defaultPar: parseFloat(formData.get('defaultPar')) || 0,
@@ -972,7 +974,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     setDeletingProduct(null);
   };
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchTerm.toLowerCase())));
   const groupedProducts = filteredProducts.reduce((groups, product) => {
     if (!groups[product.category]) groups[product.category] = [];
     groups[product.category].push(product);
@@ -1021,6 +1023,11 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                   <label className="text-xs font-bold text-slate-500 mb-1 block">商品名稱</label>
                   <input required name="name" defaultValue={editingProduct.name} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[15px] font-bold text-slate-800 shadow-inner" />
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-emerald-600 mb-1 block">跨系統代號 (同步用)</label>
+                <input name="code" defaultValue={editingProduct.code || ''} placeholder="例如: V001" className="w-full px-3 py-3 bg-emerald-50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-[15px] font-black text-emerald-700 shadow-inner uppercase tracking-widest" />
               </div>
               
               <div className="flex gap-3">
@@ -1197,6 +1204,11 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <label className="block text-xs font-bold text-slate-500 mb-1.5 ml-1">2. 商品名稱</label>
             <input required name="name" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold text-slate-800 shadow-inner" placeholder="例如: 高麗菜" />
           </div>
+
+          <div className="sm:col-span-1 md:col-span-2">
+            <label className="block text-xs font-bold text-emerald-600 mb-1.5 ml-1">跨系統代號</label>
+            <input name="code" type="text" className="w-full px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-[16px] font-black text-emerald-700 shadow-inner uppercase tracking-widest" placeholder="V001" />
+          </div>
           
           <div className="sm:col-span-1 md:col-span-2">
             <label className="block text-xs font-bold text-blue-500 mb-1.5 ml-1">3. 平日安全庫存</label>
@@ -1298,6 +1310,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                 <div key={p.id} className="flex items-stretch border-b border-slate-100 bg-white transition-all overflow-hidden last:border-0 hover:bg-slate-50">
                   <div className="flex-1 px-4 py-3 flex flex-col justify-center">
                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                       {p.code && <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md tracking-widest">{p.code}</span>}
                        <span className="font-bold text-slate-700 text-[16px]">{p.name}</span>
                        <span className="text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">{p.unit}</span>
                        {p.includeInUseQty && (
@@ -2100,7 +2113,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
           : item.unit;
         
         return {
-          id: item.id, category: item.category, name: item.name, 
+          id: item.id, category: item.category, name: item.name, code: item.code || '',
           unit: finalUnit, 
           currentStock: stockNum, parLevel: item.activeParLevel, 
           orderQty: Math.max(0, finalOrderQty)
