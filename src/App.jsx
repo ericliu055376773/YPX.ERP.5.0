@@ -662,7 +662,7 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
              </button>
            ))}
         </div>
-        {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} systemOptions={systemOptions} systemConfig={systemConfig} db={db} appId={appId} />}
+        {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} systemOptions={systemOptions} systemConfig={systemConfig} inventoryData={inventoryData} db={db} appId={appId} />}
         {activeTab === 'categories' && <AdminCategoryManager products={products} systemConfig={systemConfig} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'quotas' && <AdminQuotaManager branches={branches} products={products} inventoryData={inventoryData} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />}
         {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
@@ -802,7 +802,7 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
   );
 }
 
-function AdminProductManager({ products, showToast, fbUser, systemOptions, systemConfig, db, appId }) {
+function AdminProductManager({ products, showToast, fbUser, systemOptions, systemConfig, inventoryData, db, appId }) {
   const [searchTerm, setSearchTerm] = useState(''); 
   const [editingProduct, setEditingProduct] = useState(null);
   const [editReorderMode, setEditReorderMode] = useState('diff'); 
