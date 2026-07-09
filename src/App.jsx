@@ -953,18 +953,29 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     if (products.some(p => p.id !== editingProduct.id && p.name === newName)) {
       showToast(`商品「${newName}」已經存在，請更換名稱！`, 'error'); return; 
     }
+    const newPar = parseFloat(formData.get('defaultPar')) || 0;
+    const newParHoliday = parseFloat(formData.get('defaultParHoliday')) || 0;
+
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, editingProduct.id), {
       name: newName, 
       code: (formData.get('code') || '').trim().toUpperCase(),
       category: newCategory, 
       unit: formData.get('unit').trim(), 
-      defaultPar: parseFloat(formData.get('defaultPar')) || 0,
-      defaultParHoliday: parseFloat(formData.get('defaultParHoliday')) || 0,
+      defaultPar: newPar,
+      defaultParHoliday: newParHoliday,
       defaultReorderQty: editReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0,
       defaultReorderUnit: editReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : '',
       includeInUseQty: formData.get('includeInUseQty') === 'on'
     });
-    showToast(`商品已更新：${newName}`);
+
+    // 同步安全庫存到所有分店
+    const syncPromises = Object.keys(inventoryData).filter(bId => bId !== 'settings' && bId !== 'options').map(branchId => {
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, branchId);
+      return setDoc(docRef, { settings: { [editingProduct.id]: { parLevel: newPar, parLevelHoliday: newParHoliday } } }, { merge: true });
+    });
+    await Promise.all(syncPromises);
+
+    showToast(`商品已更新：${newName}（安全庫存已同步至所有門店）`);
     setEditingProduct(null);
   };
 
