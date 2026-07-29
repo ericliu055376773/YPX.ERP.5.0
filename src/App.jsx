@@ -358,6 +358,8 @@ export default function App() {
         parLevel: regularPar,
         parLevelHoliday: holidayPar,
         activeParLevel: isHoliday ? holidayPar : regularPar,
+        unit: bSetting.stockUnit || product.unit,
+        defaultUnit: product.unit,
         reorderQty: (bSetting.reorderQty !== undefined && bSetting.reorderQty !== null) ? bSetting.reorderQty : (product.defaultReorderQty || 0),
         reorderUnit: (bSetting.reorderUnit !== undefined && bSetting.reorderUnit !== null) ? bSetting.reorderUnit : (product.defaultReorderUnit || '')
       };
@@ -1051,14 +1053,24 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       includeInUseQty: formData.get('includeInUseQty') === 'on'
     });
 
-    // 同步安全庫存到所有分店
+    // 同步安全庫存與叫貨設定到所有分店
+    const newReorderQty = editReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0;
+    const newReorderUnit = editReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : '';
+    const newUnit = formData.get('unit').trim();
     const syncPromises = Object.keys(inventoryData).filter(bId => bId !== 'settings' && bId !== 'options').map(branchId => {
       const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, branchId);
-      return setDoc(docRef, { settings: { [editingProduct.id]: { parLevel: newPar, parLevelHoliday: newParHoliday } } }, { merge: true });
+      const syncData = { 
+        parLevel: newPar, 
+        parLevelHoliday: newParHoliday,
+        reorderQty: newReorderQty,
+        reorderUnit: newReorderUnit,
+        stockUnit: newUnit
+      };
+      return setDoc(docRef, { settings: { [editingProduct.id]: syncData } }, { merge: true });
     });
     await Promise.all(syncPromises);
 
-    showToast(`商品已更新：${newName}（安全庫存已同步至所有門店）`);
+    showToast(`商品已更新：${newName}（安全庫存與叫貨設定已同步至所有門店）`);
     setEditingProduct(null);
   };
 
@@ -1129,14 +1141,14 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                   <label className="text-xs font-bold text-blue-500 mb-1 block">平日安全庫存</label>
                   <select required name="defaultPar" defaultValue={editingProduct.defaultPar} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold text-blue-700 shadow-inner">
                     <option value="0">0</option>
-                    {Array.from({ length: 100 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+                    {Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </div>
                 <div className="flex-1">
                   <label className="text-xs font-bold text-orange-500 mb-1 block">假日安全庫存</label>
                   <select required name="defaultParHoliday" defaultValue={editingProduct.defaultParHoliday !== undefined ? editingProduct.defaultParHoliday : editingProduct.defaultPar} className="w-full px-3 py-3 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[16px] font-bold text-orange-700 shadow-inner">
                     <option value="0">0</option>
-                    {Array.from({ length: 100 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+                    {Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
                 </div>
                 <div className="flex-1">
@@ -1308,7 +1320,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <label className="block text-xs font-bold text-blue-500 mb-1.5 ml-1">3. 平日安全庫存</label>
             <select required name="defaultPar" defaultValue="0" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold shadow-inner text-blue-700">
               <option value="0">0</option>
-              {Array.from({ length: 100 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+              {Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
           
@@ -1316,7 +1328,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             <label className="block text-xs font-bold text-orange-500 mb-1.5 ml-1">4. 假日安全庫存</label>
             <select required name="defaultParHoliday" defaultValue="0" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[16px] font-bold shadow-inner text-orange-700">
               <option value="0">0</option>
-              {Array.from({ length: 100 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+              {Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
 
@@ -1620,6 +1632,11 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
       return;
     }
 
+    if (type === 'stockUnit') {
+      await setDoc(docRef, { settings: { [productId]: { stockUnit: newParStr || null } } }, { merge: true });
+      return;
+    }
+
     const newPar = newParStr === '' ? null : parseFloat(newParStr); 
     if (newPar !== null && isNaN(newPar)) return;
     const field = type === 'holiday' ? 'parLevelHoliday' : type === 'reorderQty' ? 'reorderQty' : 'parLevel';
@@ -1709,32 +1726,7 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
         </div>
       )}
 
-      {selectedBranch && (
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between mb-3">
-             <h4 className="font-bold text-slate-800 text-[14px] flex items-center gap-2"><Eye className="w-4 h-4 text-blue-600"/> 門店盤點分類顯示</h4>
-             <span className="text-xs text-slate-500 font-medium">點擊按鈕切換該門店可見的分類</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-             {categories.map(cat => {
-                const isGlobalHidden = (systemConfig.globalHiddenCategories || []).includes(cat);
-                const isHidden = hiddenCategories.includes(cat);
-                if (isGlobalHidden) {
-                  return (
-                    <span key={cat} className="px-3 py-1.5 rounded-lg text-sm font-bold border bg-slate-100 text-slate-400 border-slate-200 flex items-center gap-1.5 cursor-not-allowed" title="此分類已被總部全域隱藏">
-                      <EyeOff className="w-3.5 h-3.5" /> {formatCategory(cat)} <span className="text-[10px]">（總部隱藏）</span>
-                    </span>
-                  );
-                }
-                return (
-                  <button key={cat} onClick={() => toggleCategoryVisibility(cat)} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all border flex items-center gap-1.5 ${isHidden ? 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 shadow-inner' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm'}`}>
-                    {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} {formatCategory(cat)}
-                  </button>
-                )
-             })}
-          </div>
-        </div>
-      )}
+      {/* 門店盤點分類顯示功能已整合至後台「分類排序」的全域眼睛切換 */}
 
       <div className="flex items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-200 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
         <Search className="w-5 h-5 text-slate-400 mx-2 flex-shrink-0" />
@@ -1794,7 +1786,21 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
                   <div className="flex items-center justify-end gap-2">
                     <div className="flex items-center bg-slate-50 p-1.5 rounded-xl border border-slate-200"><span className="text-[11px] font-bold text-slate-500 px-2 whitespace-nowrap">平日安全</span><NumberInput min="0" step="0.5" value={item.parLevel} onChange={(val) => handleParLevelChange(item.id, 'regular', val)} className="w-16 sm:w-20 px-2 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-center font-black text-blue-700 text-[18px] shadow-inner" /></div>
                     <div className="flex items-center bg-orange-50 p-1.5 rounded-xl border border-orange-200"><span className="text-[11px] font-bold text-orange-600 px-2 whitespace-nowrap">假日安全</span><NumberInput min="0" step="0.5" value={item.parLevelHoliday} onChange={(val) => handleParLevelChange(item.id, 'holiday', val)} className="w-16 sm:w-20 px-2 py-1.5 bg-white border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none text-center font-black text-orange-700 text-[18px] shadow-inner" /></div>
-                    <span className="text-slate-500 font-bold px-1 text-sm shrink-0 w-8">{item.unit}</span>
+                    <select 
+                      value={item.unit} 
+                      onChange={(e) => handleParLevelChange(item.id, 'stockUnit', e.target.value)} 
+                      className="text-slate-600 font-bold px-1 text-sm shrink-0 w-14 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-center cursor-pointer shadow-inner"
+                    >
+                      <option value={item.defaultUnit}>{item.defaultUnit}</option>
+                      {(systemOptions.units || []).filter(u => {
+                        const uName = typeof u === 'string' ? u : u.name;
+                        const uCat = typeof u === 'string' ? '通用' : u.category;
+                        return uName !== item.defaultUnit && (uCat === '通用' || uCat === item.category);
+                      }).map((u, i) => {
+                        const uName = typeof u === 'string' ? u : u.name;
+                        return <option key={i} value={uName}>{uName}</option>;
+                      })}
+                    </select>
                   </div>
                   <div className="flex items-center justify-end gap-2">
                     <div className="flex items-center bg-indigo-50 p-1.5 rounded-xl border border-indigo-200 shadow-sm gap-1">
@@ -2464,3 +2470,4 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
     </div>
   );
 }
+
