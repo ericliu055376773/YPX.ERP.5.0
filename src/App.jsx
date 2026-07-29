@@ -797,6 +797,11 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
     }
     const newArr = categories.filter(c => c !== deletingCat);
     await saveOrder(newArr);
+
+    // 同步從 systemOptions.categories 移除
+    const updatedCats = (systemOptions.categories || []).filter(c => c !== deletingCat);
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), { categories: updatedCats }, { merge: true });
+
     showToast(`已刪除分類及底下所有商品`);
     setDeletingCat(null);
   };
@@ -2470,4 +2475,3 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
     </div>
   );
 }
-
