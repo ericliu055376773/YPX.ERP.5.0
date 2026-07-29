@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Utensils, ClipboardList, ShoppingCart, Truck, 
   LogOut, CheckCircle2, AlertCircle, Package, 
@@ -47,6 +47,38 @@ const initialProducts = [
 ];
 
 const adminUserSeed = { username: 'yan', password: 'yan0204', role: 'admin', branchName: '總管理處' };
+
+// --- 數字輸入元件：使用本地 state 避免 Firebase 同步延遲造成的輸入彈跳 ---
+function NumberInput({ value, onChange, className, ...props }) {
+  const [localValue, setLocalValue] = useState(value !== undefined && value !== null ? String(value) : '');
+  const isFocused = useRef(false);
+
+  useEffect(() => {
+    if (!isFocused.current) {
+      setLocalValue(value !== undefined && value !== null ? String(value) : '');
+    }
+  }, [value]);
+
+  return (
+    <input
+      {...props}
+      type="number"
+      inputMode="decimal"
+      className={className}
+      value={localValue}
+      onFocus={() => { isFocused.current = true; }}
+      onChange={(e) => {
+        setLocalValue(e.target.value);
+      }}
+      onBlur={(e) => {
+        isFocused.current = false;
+        const finalVal = e.target.value;
+        setLocalValue(finalVal);
+        if (onChange) onChange(finalVal);
+      }}
+    />
+  );
+}
 
 const formatCategory = (category) => category ? category.replace(/[【】\[\]《》〈〉()]/g, '').trim() : '';
 
@@ -120,7 +152,7 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [inventoryData, setInventoryData] = useState({}); 
   const [ordersData, setOrdersData] = useState([]);
-  const [systemConfig, setSystemConfig] = useState({ holidayMode: 'auto', categoryOrder: [], isGPSRequired: false });
+  const [systemConfig, setSystemConfig] = useState({ holidayMode: 'auto', categoryOrder: [], isGPSRequired: false, globalHiddenCategories: [] });
   const [systemOptions, setSystemOptions] = useState({ categories: [], units: [], reorderUnits: [] });
 
   const [user, setUser] = useState(null); 
@@ -169,7 +201,7 @@ export default function App() {
       setOrdersData(data.sort((a, b) => b.timestamp - a.timestamp));
     });
     const unsubSystem = onSnapshot(systemRef, (snap) => {
-      let config = { holidayMode: 'auto', categoryOrder: [], isGPSRequired: false };
+      let config = { holidayMode: 'auto', categoryOrder: [], isGPSRequired: false, globalHiddenCategories: [] };
       snap.docs.forEach(d => { 
         if (d.id === 'config') {
           const data = d.data();
@@ -177,6 +209,7 @@ export default function App() {
           else if (data.isHolidayMode !== undefined) config.holidayMode = data.isHolidayMode ? 'holiday' : 'weekday';
           if (data.categoryOrder) config.categoryOrder = data.categoryOrder;
           if (data.isGPSRequired !== undefined) config.isGPSRequired = data.isGPSRequired;
+          if (data.globalHiddenCategories) config.globalHiddenCategories = data.globalHiddenCategories;
         }
       });
       setSystemConfig(config);
@@ -699,6 +732,20 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
     showToast('分類排序已更新');
   };
 
+  const globalHidden = systemConfig.globalHiddenCategories || [];
+
+  const toggleGlobalVisibility = async (cat) => {
+    if (!fbUser) return;
+    let newHidden = [...globalHidden];
+    if (newHidden.includes(cat)) {
+      newHidden = newHidden.filter(c => c !== cat);
+    } else {
+      newHidden.push(cat);
+    }
+    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'config'), { globalHiddenCategories: newHidden });
+    showToast(`「${formatCategory(cat)}」已${newHidden.includes(cat) ? '隱藏' : '顯示'}於前台`);
+  };
+
   const handleDragStart = (e, cat) => setDraggedCat(cat);
   const handleDragOver = (e, cat) => { e.preventDefault(); setDragOverCat(cat); };
   const handleDrop = (e, targetCat) => { e.preventDefault(); handleMove(draggedCat, targetCat); };
@@ -785,9 +832,16 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
               key={cat} data-cat-id={cat} draggable onDragStart={(e) => handleDragStart(e, cat)} onDragOver={(e) => handleDragOver(e, cat)} onDrop={(e) => handleDrop(e, cat)} onDragEnd={() => {setDraggedCat(null); setDragOverCat(null);}}
               className={`flex items-stretch bg-white transition-all overflow-hidden ${draggedCat === cat ? 'opacity-40 bg-slate-50 scale-[0.98]' : ''} ${dragOverCat === cat && draggedCat !== cat ? 'border-t-4 border-t-blue-500' : ''}`}
             >
+              <button
+                onClick={() => toggleGlobalVisibility(cat)}
+                className={`w-12 flex items-center justify-center transition-colors ${globalHidden.includes(cat) ? 'bg-slate-200 text-slate-400' : 'bg-blue-50 text-blue-500 hover:text-blue-700'}`}
+                title={globalHidden.includes(cat) ? '前台已隱藏，點擊顯示' : '前台顯示中，點擊隱藏'}
+              >
+                {globalHidden.includes(cat) ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
               <div className="w-16 flex items-center justify-center text-slate-400 bg-slate-50 cursor-grab active:cursor-grabbing border-r border-slate-100" style={{ touchAction: 'none' }} onTouchStart={(e) => handleTouchStart(e, cat)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}><Menu className="w-6 h-6" /></div>
-              <div className="flex-1 px-5 py-4 flex items-center justify-between">
-                <span className="font-bold text-slate-700 text-[17px]">{formatCategory(cat)}</span>
+              <div className={`flex-1 px-5 py-4 flex items-center justify-between ${globalHidden.includes(cat) ? 'opacity-40' : ''}`}>
+                <span className="font-bold text-slate-700 text-[17px]">{formatCategory(cat)}{globalHidden.includes(cat) ? <span className="ml-2 text-xs text-slate-400 font-medium">（已隱藏）</span> : ''}</span>
                 <div className="flex items-center gap-2">
                    <button onClick={() => setEditingCat(cat)} className="p-2 text-slate-400 hover:text-blue-600 bg-slate-50 rounded-xl transition-colors"><Edit2 className="w-4 h-4"/></button>
                    <button onClick={() => setDeletingCat(cat)} className="p-2 text-slate-400 hover:text-red-600 bg-slate-50 rounded-xl transition-colors"><Trash2 className="w-4 h-4"/></button>
@@ -1634,7 +1688,15 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
           </div>
           <div className="flex flex-wrap gap-2">
              {categories.map(cat => {
+                const isGlobalHidden = (systemConfig.globalHiddenCategories || []).includes(cat);
                 const isHidden = hiddenCategories.includes(cat);
+                if (isGlobalHidden) {
+                  return (
+                    <span key={cat} className="px-3 py-1.5 rounded-lg text-sm font-bold border bg-slate-100 text-slate-400 border-slate-200 flex items-center gap-1.5 cursor-not-allowed" title="此分類已被總部全域隱藏">
+                      <EyeOff className="w-3.5 h-3.5" /> {formatCategory(cat)} <span className="text-[10px]">（總部隱藏）</span>
+                    </span>
+                  );
+                }
                 return (
                   <button key={cat} onClick={() => toggleCategoryVisibility(cat)} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all border flex items-center gap-1.5 ${isHidden ? 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 shadow-inner' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 shadow-sm'}`}>
                     {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} {formatCategory(cat)}
@@ -1687,8 +1749,8 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
                 </div>
                 <div className="flex flex-col gap-2 self-end xl:self-auto w-full xl:w-auto">
                   <div className="flex items-center justify-end gap-2">
-                    <div className="flex items-center bg-slate-50 p-1.5 rounded-xl border border-slate-200"><span className="text-[11px] font-bold text-slate-500 px-2 whitespace-nowrap">平日安全</span><input type="number" min="0" step="0.5" inputMode="decimal" value={item.parLevel} onChange={(e) => handleParLevelChange(item.id, 'regular', e.target.value)} className="w-16 sm:w-20 px-2 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-center font-black text-blue-700 text-[18px] shadow-inner" /></div>
-                    <div className="flex items-center bg-orange-50 p-1.5 rounded-xl border border-orange-200"><span className="text-[11px] font-bold text-orange-600 px-2 whitespace-nowrap">假日安全</span><input type="number" min="0" step="0.5" inputMode="decimal" value={item.parLevelHoliday} onChange={(e) => handleParLevelChange(item.id, 'holiday', e.target.value)} className="w-16 sm:w-20 px-2 py-1.5 bg-white border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none text-center font-black text-orange-700 text-[18px] shadow-inner" /></div>
+                    <div className="flex items-center bg-slate-50 p-1.5 rounded-xl border border-slate-200"><span className="text-[11px] font-bold text-slate-500 px-2 whitespace-nowrap">平日安全</span><NumberInput min="0" step="0.5" value={item.parLevel} onChange={(val) => handleParLevelChange(item.id, 'regular', val)} className="w-16 sm:w-20 px-2 py-1.5 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-center font-black text-blue-700 text-[18px] shadow-inner" /></div>
+                    <div className="flex items-center bg-orange-50 p-1.5 rounded-xl border border-orange-200"><span className="text-[11px] font-bold text-orange-600 px-2 whitespace-nowrap">假日安全</span><NumberInput min="0" step="0.5" value={item.parLevelHoliday} onChange={(val) => handleParLevelChange(item.id, 'holiday', val)} className="w-16 sm:w-20 px-2 py-1.5 bg-white border border-orange-200 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none text-center font-black text-orange-700 text-[18px] shadow-inner" /></div>
                     <span className="text-slate-500 font-bold px-1 text-sm shrink-0 w-8">{item.unit}</span>
                   </div>
                   <div className="flex items-center justify-end gap-2">
@@ -1712,11 +1774,11 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
 
                       {parseFloat(item.reorderQty) > 0 ? (
                         <div className="flex items-center ml-1 gap-1">
-                          <input 
-                            type="number" min="0" step="0.5" inputMode="decimal" 
+                          <NumberInput 
+                            min="0" step="0.5"
                             placeholder="數量" 
-                            value={item.reorderQty || ''} 
-                            onChange={(e) => handleParLevelChange(item.id, 'reorderQty', e.target.value)} 
+                            value={item.reorderQty} 
+                            onChange={(val) => handleParLevelChange(item.id, 'reorderQty', val)} 
                             className="w-14 sm:w-16 px-1 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-black text-indigo-700 text-[15px] shadow-inner" 
                           />
                           <select 
@@ -2071,11 +2133,14 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
   const [searchTerm, setSearchTerm] = useState(''); 
   const [errorItemId, setErrorItemId] = useState(null); 
 
-  const visibleInventory = useMemo(() => {
-    return inventory.filter(i => !hiddenCategories.includes(i.category));
-  }, [inventory, hiddenCategories]);
+  const globalHidden = systemConfig.globalHiddenCategories || [];
+  const allHidden = useMemo(() => [...new Set([...hiddenCategories, ...globalHidden])], [hiddenCategories, globalHidden]);
 
-  const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories).filter(c => !hiddenCategories.includes(c));
+  const visibleInventory = useMemo(() => {
+    return inventory.filter(i => !allHidden.includes(i.category));
+  }, [inventory, allHidden]);
+
+  const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories).filter(c => !allHidden.includes(c));
 
   useEffect(() => { 
     if ((!activeCategory || !categories.includes(activeCategory)) && categories.length > 0) {
@@ -2255,14 +2320,12 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
                   <span>實</span><span>有</span><span>庫</span><span>存</span>
                 </div>
                 <div className="flex-1 relative flex items-center justify-center h-[46px] px-2">
-                  <input
-                    type="number"
+                  <NumberInput
                     min="0"
                     step="0.5"
-                    inputMode="decimal"
                     value={item.currentStock}
-                    onChange={(e) => { 
-                      updateStockCloud(item.id, e.target.value); 
+                    onChange={(val) => { 
+                      updateStockCloud(item.id, val); 
                       setActiveCategory(item.category); 
                       if(errorItemId === item.id) setErrorItemId(null); 
                     }}
@@ -2344,3 +2407,4 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
     </div>
   );
 }
+
