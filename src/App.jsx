@@ -698,7 +698,7 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
            ))}
         </div>
         {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} systemOptions={systemOptions} systemConfig={systemConfig} inventoryData={inventoryData} db={db} appId={appId} />}
-        {activeTab === 'categories' && <AdminCategoryManager products={products} systemConfig={systemConfig} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
+        {activeTab === 'categories' && <AdminCategoryManager products={products} systemConfig={systemConfig} systemOptions={systemOptions} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'quotas' && <AdminQuotaManager branches={branches} products={products} inventoryData={inventoryData} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />}
         {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'history' && <AdminOrderHistory ordersData={ordersData} branches={branches} showToast={showToast} />}
@@ -709,8 +709,8 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
   );
 }
 
-function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, appId }) {
-  const categories = getSortedCategories(products, systemConfig.categoryOrder);
+function AdminCategoryManager({ products, systemConfig, systemOptions, showToast, fbUser, db, appId }) {
+  const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories);
   const [draggedCat, setDraggedCat] = useState(null);
   const [dragOverCat, setDragOverCat] = useState(null);
   const [editingCat, setEditingCat] = useState(null);
