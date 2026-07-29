@@ -762,6 +762,17 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
     else { setDraggedCat(null); setDragOverCat(null); }
   };
 
+  const moveCategoryByIndex = (cat, direction) => {
+    const newArr = [...categories];
+    const idx = newArr.indexOf(cat);
+    if (idx === -1) return;
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= newArr.length) return;
+    [newArr[idx], newArr[targetIdx]] = [newArr[targetIdx], newArr[idx]];
+    saveOrder(newArr);
+    showToast('分類排序已更新');
+  };
+
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     const newName = e.target.newName.value.trim();
@@ -827,7 +838,7 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
         </div>
         <div className="divide-y divide-slate-100 bg-slate-50/50 rounded-[1.5rem] border border-slate-100 overflow-hidden">
           <div className="px-4 py-3 bg-slate-100 text-slate-500 text-xs font-bold text-center tracking-widest">分類名稱</div>
-          {categories.map(cat => (
+          {categories.map((cat, catIndex) => (
             <div 
               key={cat} data-cat-id={cat} draggable onDragStart={(e) => handleDragStart(e, cat)} onDragOver={(e) => handleDragOver(e, cat)} onDrop={(e) => handleDrop(e, cat)} onDragEnd={() => {setDraggedCat(null); setDragOverCat(null);}}
               className={`flex items-stretch bg-white transition-all overflow-hidden ${draggedCat === cat ? 'opacity-40 bg-slate-50 scale-[0.98]' : ''} ${dragOverCat === cat && draggedCat !== cat ? 'border-t-4 border-t-blue-500' : ''}`}
@@ -839,7 +850,25 @@ function AdminCategoryManager({ products, systemConfig, showToast, fbUser, db, a
               >
                 {globalHidden.includes(cat) ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
-              <div className="w-16 flex items-center justify-center text-slate-400 bg-slate-50 cursor-grab active:cursor-grabbing border-r border-slate-100" style={{ touchAction: 'none' }} onTouchStart={(e) => handleTouchStart(e, cat)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}><Menu className="w-6 h-6" /></div>
+              <div className="flex flex-col items-center justify-center border-r border-slate-100 bg-slate-50 w-10">
+                <button 
+                  onClick={() => moveCategoryByIndex(cat, -1)} 
+                  disabled={catIndex === 0}
+                  className={`p-1 transition-colors rounded ${catIndex === 0 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50 active:scale-90'}`}
+                  title="上移"
+                >
+                  <ChevronUp className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={() => moveCategoryByIndex(cat, 1)} 
+                  disabled={catIndex === categories.length - 1}
+                  className={`p-1 transition-colors rounded ${catIndex === categories.length - 1 ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50 active:scale-90'}`}
+                  title="下移"
+                >
+                  <ChevronDown className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="w-12 flex items-center justify-center text-slate-400 bg-slate-50 cursor-grab active:cursor-grabbing border-r border-slate-100" style={{ touchAction: 'none' }} onTouchStart={(e) => handleTouchStart(e, cat)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}><Menu className="w-5 h-5" /></div>
               <div className={`flex-1 px-5 py-4 flex items-center justify-between ${globalHidden.includes(cat) ? 'opacity-40' : ''}`}>
                 <span className="font-bold text-slate-700 text-[17px]">{formatCategory(cat)}{globalHidden.includes(cat) ? <span className="ml-2 text-xs text-slate-400 font-medium">（已隱藏）</span> : ''}</span>
                 <div className="flex items-center gap-2">
@@ -1724,10 +1753,24 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
       </div>
 
       {!searchTerm ? (
-        <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
-          {categories.map(cat => (
-            <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-5 py-3 rounded-[1rem] font-bold whitespace-nowrap transition-all shadow-sm border text-[15px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>{formatCategory(cat)}</button>
-          ))}
+        <div className="relative flex items-center gap-1">
+          <button 
+            onClick={() => { const c = document.getElementById('admin-cat-scroll'); if(c) c.scrollBy({left: -200, behavior: 'smooth'}); }}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 shadow-sm transition-colors"
+          >
+            <ChevronUp className="w-4 h-4 -rotate-90" />
+          </button>
+          <div id="admin-cat-scroll" className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x flex-1">
+            {categories.map(cat => (
+              <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-5 py-3 rounded-[1rem] font-bold whitespace-nowrap transition-all shadow-sm border text-[15px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>{formatCategory(cat)}</button>
+            ))}
+          </div>
+          <button 
+            onClick={() => { const c = document.getElementById('admin-cat-scroll'); if(c) c.scrollBy({left: 200, behavior: 'smooth'}); }}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 shadow-sm transition-colors"
+          >
+            <ChevronDown className="w-4 h-4 -rotate-90" />
+          </button>
         </div>
       ) : (
         <div className="text-sm font-bold text-blue-600 px-2 flex items-center gap-2"><Search className="w-4 h-4"/> 正在顯示「{searchTerm}」的搜尋結果...</div>
@@ -2255,12 +2298,26 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
         )}
       </div>
 
-      <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide -mx-3 px-3 snap-x">
-        {categories.map(cat => (
-          <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm border text-[16px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-            {formatCategory(cat)}
-          </button>
-        ))}
+      <div className="relative flex items-center gap-1">
+        <button 
+          onClick={() => { const c = document.getElementById('branch-cat-scroll'); if(c) c.scrollBy({left: -200, behavior: 'smooth'}); }}
+          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 shadow-sm transition-colors"
+        >
+          <ChevronUp className="w-4 h-4 -rotate-90" />
+        </button>
+        <div id="branch-cat-scroll" className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x flex-1">
+          {categories.map(cat => (
+            <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm border text-[16px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+              {formatCategory(cat)}
+            </button>
+          ))}
+        </div>
+        <button 
+          onClick={() => { const c = document.getElementById('branch-cat-scroll'); if(c) c.scrollBy({left: 200, behavior: 'smooth'}); }}
+          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 shadow-sm transition-colors"
+        >
+          <ChevronDown className="w-4 h-4 -rotate-90" />
+        </button>
       </div>
       
       <div className="flex items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-200 focus-within:border-orange-400 focus-within:ring-2 focus-within:ring-orange-100 transition-all mt-2 mb-4 mx-1">
@@ -2407,4 +2464,3 @@ function BranchOrderManagement({ purchaseOrders, showToast }) {
     </div>
   );
 }
-
