@@ -1051,6 +1051,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, editingProduct.id), {
       name: newName, 
       code: (formData.get('code') || '').trim().toUpperCase(),
+      tag: (formData.get('tag') || '').trim(),
       category: newCategory, 
       unit: formData.get('unit').trim(), 
       defaultPar: newPar,
@@ -1141,6 +1142,11 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
               <div>
                 <label className="text-xs font-bold text-emerald-600 mb-1 block">跨系統代號 (同步用)</label>
                 <input name="code" defaultValue={editingProduct.code || ''} placeholder="例如: V001" className="w-full px-3 py-3 bg-emerald-50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-[15px] font-black text-emerald-700 shadow-inner uppercase tracking-widest" />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-orange-500 mb-1 block">商品標籤 / 備註（顯示於商品名稱旁）</label>
+                <input name="tag" defaultValue={editingProduct.tag || ''} placeholder="例如: 冷凍、需退冰、限量" className="w-full px-3 py-3 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[15px] font-bold text-orange-700 shadow-inner" />
               </div>
               
               <div className="flex gap-3">
@@ -2386,6 +2392,11 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
                   {searchTerm && <span className="text-[11px] font-bold text-slate-400 block mb-0.5">{formatCategory(item.category)}</span>}
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                      <h3 className="text-[20px] font-black text-slate-800 tracking-wide m-0 leading-tight">{item.name}</h3>
+                     {item.tag && (
+                        <span className="bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm">
+                          {item.tag}
+                        </span>
+                     )}
                      {item.includeInUseQty && (
                         <span className="bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm">
                           + 含使用中
