@@ -286,11 +286,12 @@ export default function App() {
     e.preventDefault();
     if (!fbUser) { showToast('雲端連線中，請稍候', 'error'); return; }
     const formData = new FormData(e.target);
-    const username = formData.get('username').trim();
     const password = formData.get('password').trim();
-    const branchName = formData.get('branchName')?.trim();
 
     if (authMode === 'register') {
+      const username = (formData.get('username') || '').trim();
+      const branchName = (formData.get('branchName') || '').trim();
+      if (!username || !branchName) { showToast('請填寫完整資料', 'error'); return; }
       if (username === 'yan' || usersDb.some(u => u.username === username)) {
         showToast('帳號已存在', 'error'); return;
       }
@@ -299,7 +300,6 @@ export default function App() {
       showToast(`帳號註冊成功！請等待總公司審核開通。`);
       setAuthMode('login');
     } else {
-      const password = formData.get('password').trim();
       const existingUser = usersDb.find(u => 
         u.password === password && 
         (u.role === 'manager' || u.role === 'branch')
