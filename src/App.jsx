@@ -299,8 +299,8 @@ export default function App() {
       showToast(`帳號註冊成功！請等待總公司審核開通。`);
       setAuthMode('login');
     } else {
+      const password = formData.get('password').trim();
       const existingUser = usersDb.find(u => 
-        u.username === username && 
         u.password === password && 
         (u.role === 'manager' || u.role === 'branch')
       );
@@ -311,9 +311,9 @@ export default function App() {
           return;
         }
         setUser({ ...existingUser, role: 'manager' }); 
-        showToast(`點貨人員登入成功！`);
+        showToast(`${existingUser.branchName} 登入成功！`);
       } else {
-        showToast('帳號或密碼錯誤，請重試', 'error');
+        showToast('密碼錯誤，請重試', 'error');
       }
     }
   };
@@ -409,10 +409,12 @@ export default function App() {
 
               <form onSubmit={handleAuth} className="space-y-4">
                 {authMode === 'register' && (
-                  <div><input required name="branchName" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="所屬門店名稱 (例如：斗六店)" /></div>
+                  <>
+                    <div><input required name="branchName" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="所屬門店名稱 (例如：斗六店)" /></div>
+                    <div><input required name="username" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="個人帳號" /></div>
+                  </>
                 )}
-                <div><input required name="username" type="text" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="個人帳號" /></div>
-                <div><input required name="password" type="password" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="密碼" /></div>
+                <div><input required name="password" type="password" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none transition-all text-[16px]" placeholder="輸入門店密碼" /></div>
                 <button type="submit" className="w-full active:scale-95 text-white font-bold py-4 mt-2 rounded-xl transition-all shadow-md text-[16px] bg-slate-900 hover:bg-slate-800 shadow-slate-900/20">
                   {authMode === 'login' ? '登入系統' : '註冊帳號'}
                 </button>
@@ -694,17 +696,17 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
   return (
     <>
       <div className="p-3 md:p-8 max-w-4xl mx-auto w-full">
-        <div className="hidden md:flex space-x-2 mb-8 bg-slate-200/50 p-1.5 rounded-xl w-full overflow-x-auto">
+        <div className="hidden md:flex space-x-1 mb-8 bg-slate-200/50 p-1.5 rounded-xl w-full overflow-x-auto scrollbar-hide">
            {tabs.map(t => (
-             <button key={t.id} onClick={() => setActiveTab(t.id)} className={`px-5 py-2.5 rounded-lg font-bold transition-all ${activeTab === t.id ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-               <div className="flex items-center gap-2">{React.cloneElement(t.icon, { className: 'w-4 h-4' })} {t.label}</div>
+             <button key={t.id} onClick={() => setActiveTab(t.id)} className={`px-4 py-2.5 rounded-lg font-bold transition-all whitespace-nowrap text-[13px] ${activeTab === t.id ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+               <div className="flex items-center gap-1.5">{React.cloneElement(t.icon, { className: 'w-4 h-4' })} {t.label}</div>
              </button>
            ))}
         </div>
         {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} systemOptions={systemOptions} systemConfig={systemConfig} inventoryData={inventoryData} db={db} appId={appId} />}
         {activeTab === 'categories' && <AdminCategoryManager products={products} systemConfig={systemConfig} systemOptions={systemOptions} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'quotas' && <AdminQuotaManager branches={branches} products={products} inventoryData={inventoryData} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />}
-        {activeTab === 'inventory' && <AdminInventoryLog inventoryData={inventoryData} branches={branches} products={products} systemConfig={systemConfig} systemOptions={systemOptions} getBranchInventory={getBranchInventory} />}
+        {activeTab === 'inventory' && <AdminInventoryLog inventoryData={inventoryData} branches={branches} products={products} systemConfig={systemConfig} systemOptions={systemOptions} getBranchInventory={getBranchInventory} ordersData={ordersData} />}
         {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'history' && <AdminOrderHistory ordersData={ordersData} branches={branches} showToast={showToast} />}
         {activeTab === 'analytics' && <AdminAnalytics ordersData={ordersData} branches={branches} products={products} systemConfig={systemConfig} />}
@@ -2139,8 +2141,9 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
   );
 }
 
-function AdminInventoryLog({ inventoryData, branches, products, systemConfig, systemOptions, getBranchInventory }) {
+function AdminInventoryLog({ inventoryData, branches, products, systemConfig, systemOptions, getBranchInventory, ordersData }) {
   const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const uniqueBranchNames = useMemo(() => [...new Set(branches.map(b => b.branchName))].filter(Boolean), [branches]);
   const branchOptions = uniqueBranchNames.map(name => ({ value: name, label: name }));
 
@@ -2148,10 +2151,31 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
     if (!selectedBranch && uniqueBranchNames.length > 0) setSelectedBranch(uniqueBranchNames[0]);
   }, [uniqueBranchNames, selectedBranch]);
 
+  const isToday = selectedDate === new Date().toISOString().split('T')[0];
+
   const branchInventory = useMemo(() => {
     if (!selectedBranch) return [];
     return getBranchInventory(selectedBranch);
   }, [selectedBranch, inventoryData, products, systemConfig]);
+
+  // 歷史紀錄：從叫貨單中取得該日期的庫存快照
+  const historicalData = useMemo(() => {
+    if (isToday || !selectedBranch) return null;
+    const dateStr = new Date(selectedDate).toLocaleDateString();
+    const dayOrders = (ordersData || []).filter(o => {
+      if (o.branchName !== selectedBranch) return false;
+      const orderDate = new Date(o.timestamp).toLocaleDateString();
+      return orderDate === dateStr;
+    });
+    if (dayOrders.length === 0) return [];
+    const itemMap = {};
+    dayOrders.forEach(order => {
+      (order.items || []).forEach(item => {
+        itemMap[item.id] = { ...item, orderQty: (itemMap[item.id]?.orderQty || 0) + item.orderQty };
+      });
+    });
+    return Object.values(itemMap);
+  }, [selectedBranch, selectedDate, ordersData, isToday]);
 
   const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories);
   const [activeCategory, setActiveCategory] = useState('');
@@ -2159,26 +2183,41 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
     if ((!activeCategory || !categories.includes(activeCategory)) && categories.length > 0) setActiveCategory(categories[0]);
   }, [categories, activeCategory]);
 
-  const todayStr = new Date().toLocaleDateString('zh-TW');
-  const itemsInCategory = branchInventory.filter(i => i.category === activeCategory);
-  const filledCount = itemsInCategory.filter(i => i.currentStock !== '' && i.currentStock !== undefined && i.currentStock !== null).length;
+  const displayDate = new Date(selectedDate).toLocaleDateString('zh-TW');
+  const itemsInCategory = isToday 
+    ? branchInventory.filter(i => i.category === activeCategory)
+    : (historicalData || []).filter(i => i.category === activeCategory);
+  const filledCount = isToday 
+    ? itemsInCategory.filter(i => i.currentStock !== '' && i.currentStock !== undefined && i.currentStock !== null).length
+    : itemsInCategory.length;
 
   return (
     <div className="space-y-4">
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-        <div className="flex items-center gap-2 font-bold text-slate-800"><ClipboardList className="w-5 h-5 text-blue-600" />庫存管理 — 各門店每日點貨紀錄</div>
-        <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="w-full md:w-auto min-w-[160px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800 h-full" />
+        <div className="flex items-center gap-2 font-bold text-slate-800"><ClipboardList className="w-5 h-5 text-blue-600" />庫存管理</div>
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <input 
+            type="date" 
+            value={selectedDate} 
+            onChange={(e) => setSelectedDate(e.target.value)}
+            max={new Date().toISOString().split('T')[0]}
+            className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 text-[14px]"
+          />
+          <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="flex-1 md:flex-none min-w-[120px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800 h-full" />
+        </div>
       </div>
 
-      <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200">
+      <div className={`p-4 rounded-2xl border ${isToday ? 'bg-blue-50 border-blue-200' : 'bg-slate-50 border-slate-200'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-bold text-blue-800 text-lg">{selectedBranch} — {todayStr}</h3>
-            <p className="text-sm text-blue-600 font-medium mt-1">今日點貨進度：已填 {filledCount} / {itemsInCategory.length} 品項</p>
+            <h3 className={`font-bold text-lg ${isToday ? 'text-blue-800' : 'text-slate-700'}`}>{selectedBranch} — {displayDate}{isToday ? '（今日）' : ''}</h3>
+            <p className={`text-sm font-medium mt-1 ${isToday ? 'text-blue-600' : 'text-slate-500'}`}>
+              {isToday ? `今日點貨進度：已填 ${filledCount} / ${itemsInCategory.length} 品項` : (historicalData && historicalData.length > 0 ? `該日共 ${historicalData.length} 筆叫貨紀錄` : '該日無叫貨紀錄')}
+            </p>
           </div>
-          <div className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-lg">{itemsInCategory.length > 0 ? Math.round(filledCount / itemsInCategory.length * 100) : 0}%</div>
+          {isToday && <div className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-lg">{itemsInCategory.length > 0 ? Math.round(filledCount / itemsInCategory.length * 100) : 0}%</div>}
         </div>
-        <div className="w-full bg-blue-200 rounded-full h-2.5 mt-3 overflow-hidden"><div className="bg-blue-600 h-2.5 rounded-full transition-all" style={{ width: `${itemsInCategory.length > 0 ? (filledCount / itemsInCategory.length * 100) : 0}%` }}></div></div>
+        {isToday && <div className="w-full bg-blue-200 rounded-full h-2.5 mt-3 overflow-hidden"><div className="bg-blue-600 h-2.5 rounded-full transition-all" style={{ width: `${itemsInCategory.length > 0 ? (filledCount / itemsInCategory.length * 100) : 0}%` }}></div></div>}
       </div>
 
       <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
@@ -2194,7 +2233,7 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
           <span className="text-center">叫貨數量</span>
         </div>
         <div className="divide-y divide-slate-100">
-          {itemsInCategory.map(item => {
+          {isToday ? itemsInCategory.map(item => {
             const stockNum = parseFloat(item.currentStock) || 0;
             const orderNum = parseFloat(item.manualOrderQty) || 0;
             const isFilled = item.currentStock !== '' && item.currentStock !== undefined && item.currentStock !== null;
@@ -2208,7 +2247,17 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
                 <div className="text-center font-black text-orange-600 text-[16px]">{orderNum > 0 ? `${orderNum} ${item.unit}` : <span className="text-slate-300 text-sm">—</span>}</div>
               </div>
             );
-          })}
+          }) : (historicalData && historicalData.length > 0 ? itemsInCategory.map(item => (
+            <div key={item.id} className="grid grid-cols-[1fr_100px_100px] gap-0 px-5 py-3 items-center">
+              <div>
+                <span className="font-bold text-slate-800">{item.name}</span>
+              </div>
+              <div className="text-center font-black text-blue-700 text-[16px]">{item.currentStock !== undefined ? `${item.currentStock} ${item.unit}` : <span className="text-slate-300 text-sm">—</span>}</div>
+              <div className="text-center font-black text-orange-600 text-[16px]">{item.orderQty > 0 ? `${item.orderQty} ${item.unit}` : <span className="text-slate-300 text-sm">—</span>}</div>
+            </div>
+          )) : (
+            <div className="px-5 py-8 text-center text-slate-400 font-bold">該日期無叫貨紀錄</div>
+          ))}
         </div>
       </div>
     </div>
