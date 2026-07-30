@@ -265,7 +265,7 @@ export default function App() {
        if (newSettings) {
          Object.keys(newSettings).forEach(pId => {
             if (newSettings[pId].currentStock !== '' && newSettings[pId].currentStock !== undefined && newSettings[pId].currentStock !== null) {
-               newSettings[pId] = { ...newSettings[pId], currentStock: '' }; // 將庫存清空
+               newSettings[pId] = { ...newSettings[pId], currentStock: '', manualOrderQty: '' }; // 將庫存和叫貨數量清空
                hasChanges = true;
             }
          });
@@ -363,7 +363,8 @@ export default function App() {
         unit: bSetting.stockUnit || product.unit,
         defaultUnit: product.unit,
         reorderQty: (bSetting.reorderQty !== undefined && bSetting.reorderQty !== null) ? bSetting.reorderQty : (product.defaultReorderQty || 0),
-        reorderUnit: (bSetting.reorderUnit !== undefined && bSetting.reorderUnit !== null) ? bSetting.reorderUnit : (product.defaultReorderUnit || '')
+        reorderUnit: (bSetting.reorderUnit !== undefined && bSetting.reorderUnit !== null) ? bSetting.reorderUnit : (product.defaultReorderUnit || ''),
+        manualOrderQty: (bSetting.manualOrderQty !== undefined && bSetting.manualOrderQty !== null) ? bSetting.manualOrderQty : ''
       };
     });
   };
@@ -684,6 +685,7 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
     { id: 'products', icon: <Database />, label: '商品庫' },
     { id: 'categories', icon: <Layers />, label: '分類排序' },
     { id: 'quotas', icon: <Settings />, label: '安全庫存' },
+    { id: 'inventory', icon: <ClipboardList />, label: '庫存管理' },
     { id: 'branches', icon: <Users />, label: '門店帳號' },
     { id: 'history', icon: <History />, label: '進貨紀錄' },
     { id: 'analytics', icon: <BarChart2 />, label: '統計' }
@@ -702,6 +704,7 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
         {activeTab === 'products' && <AdminProductManager products={products} showToast={showToast} fbUser={fbUser} systemOptions={systemOptions} systemConfig={systemConfig} inventoryData={inventoryData} db={db} appId={appId} />}
         {activeTab === 'categories' && <AdminCategoryManager products={products} systemConfig={systemConfig} systemOptions={systemOptions} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'quotas' && <AdminQuotaManager branches={branches} products={products} inventoryData={inventoryData} getBranchInventory={getBranchInventory} fbUser={fbUser} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />}
+        {activeTab === 'inventory' && <AdminInventoryLog inventoryData={inventoryData} branches={branches} products={products} systemConfig={systemConfig} systemOptions={systemOptions} getBranchInventory={getBranchInventory} />}
         {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'history' && <AdminOrderHistory ordersData={ordersData} branches={branches} showToast={showToast} />}
         {activeTab === 'analytics' && <AdminAnalytics ordersData={ordersData} branches={branches} products={products} systemConfig={systemConfig} />}
@@ -1178,39 +1181,6 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                     {!((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unit)) && <option value={editingProduct.unit}>{editingProduct.unit}</option>}
                   </select>
                 </div>
-              </div>
-
-              <div className="flex gap-3 pt-2 border-t border-slate-100">
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-indigo-500 mb-1 block">低於安全值，叫貨邏輯</label>
-                  <select value={editReorderMode} onChange={e => setEditReorderMode(e.target.value)} className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[15px] font-bold text-indigo-800 shadow-inner">
-                    <option value="diff">補齊差額 (安全 - 實有)</option>
-                    <option value="fixed">每次固定叫貨數量</option>
-                  </select>
-                </div>
-                
-                {editReorderMode === 'fixed' && (
-                  <>
-                    <div className="flex-1">
-                      <label className="text-xs font-bold text-indigo-500 mb-1 block">每次固定叫貨量</label>
-                      <input name="defaultReorderQty" type="number" min="0" step="0.5" defaultValue={editingProduct.defaultReorderQty || ''} className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[15px] font-bold text-indigo-700" placeholder="數量" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-xs font-bold text-indigo-500 mb-1 block">叫貨單位</label>
-                      <select name="defaultReorderUnit" defaultValue={editingProduct.defaultReorderUnit || ''} className="w-full px-3 py-3 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-[15px] font-bold text-indigo-700">
-                        <option value="">同盤點單位</option>
-                        {(systemOptions.reorderUnits || []).filter(u => {
-                           const uCat = typeof u === 'string' ? '通用' : u.category;
-                           return uCat === '通用' || uCat === editingProduct.category;
-                        }).map((u, i) => {
-                           const uName = typeof u === 'string' ? u : u.name;
-                           return <option key={`ru-${i}`} value={uName}>{uName}</option>;
-                        })}
-                        {editingProduct.defaultReorderUnit && !(systemOptions.reorderUnits || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.defaultReorderUnit) && <option value={editingProduct.defaultReorderUnit}>{editingProduct.defaultReorderUnit}</option>}
-                      </select>
-                    </div>
-                  </>
-                )}
               </div>
 
               <div className="pt-2 mt-1 border-t border-slate-100">
@@ -1834,53 +1804,6 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
                       })}
                     </select>
                   </div>
-                  <div className="flex items-center justify-end gap-2">
-                    <div className="flex items-center bg-indigo-50 p-1.5 rounded-xl border border-indigo-200 shadow-sm gap-1">
-                      <span className="text-[11px] font-bold text-indigo-700 pl-2 pr-1 whitespace-nowrap">叫貨邏輯：</span>
-                      
-                      <select 
-                        value={parseFloat(item.reorderQty) > 0 ? 'fixed' : 'diff'} 
-                        onChange={(e) => {
-                          if (e.target.value === 'diff') {
-                            handleParLevelChange(item.id, 'reorderQty', '0');
-                          } else {
-                            handleParLevelChange(item.id, 'reorderQty', item.defaultReorderQty > 0 ? item.defaultReorderQty : '1');
-                          }
-                        }} 
-                        className="px-2 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-indigo-700 text-[13px] shadow-inner cursor-pointer"
-                      >
-                        <option value="diff">補齊差額</option>
-                        <option value="fixed">固定數量</option>
-                      </select>
-
-                      {parseFloat(item.reorderQty) > 0 ? (
-                        <div className="flex items-center ml-1 gap-1">
-                          <NumberInput 
-                            min="0" step="0.5"
-                            placeholder="數量" 
-                            value={item.reorderQty} 
-                            onChange={(val) => handleParLevelChange(item.id, 'reorderQty', val)} 
-                            className="w-14 sm:w-16 px-1 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-black text-indigo-700 text-[15px] shadow-inner" 
-                          />
-                          <select 
-                            value={item.reorderUnit || ''} 
-                            onChange={(e) => handleParLevelChange(item.id, 'reorderUnit', e.target.value)} 
-                            className="w-16 sm:w-20 px-1 py-1.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-indigo-600 text-[13px] shadow-inner cursor-pointer"
-                          >
-                            <option value="">{item.defaultReorderUnit || item.unit}</option>
-                            {availableReorderUnits.map((u, i) => {
-                               const uName = typeof u === 'string' ? u : u.name;
-                               return <option key={i} value={uName}>{uName}</option>;
-                            })}
-                          </select>
-                        </div>
-                      ) : (
-                         <span className="text-[11px] font-bold text-slate-500 px-2 whitespace-nowrap">
-                           自動算 (安全 - 實有)
-                         </span>
-                      )}
-                    </div>
-                  </div>
                 </div>
               </div>
             );
@@ -2177,9 +2100,16 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
     if(!fbUser) return;
     const valueToSave = newStockValue === '' ? '' : parseFloat(newStockValue); 
     if (valueToSave !== '' && isNaN(valueToSave)) return;
-
     const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
     await setDoc(docRef, { settings: { [productId]: { currentStock: valueToSave } } }, { merge: true });
+  };
+
+  const updateOrderQtyCloud = async (productId, newQtyValue) => {
+    if(!fbUser) return;
+    const valueToSave = newQtyValue === '' ? '' : parseFloat(newQtyValue); 
+    if (valueToSave !== '' && isNaN(valueToSave)) return;
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+    await setDoc(docRef, { settings: { [productId]: { manualOrderQty: valueToSave } } }, { merge: true });
   };
 
   const addOrderCloud = async (newOrderData) => {
@@ -2201,7 +2131,7 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
              </button>
            ))}
         </div>
-        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
+        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
       </div>
       <BottomNav tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} themeColor={isManager ? 'text-orange-600' : 'text-green-600'} />
@@ -2209,7 +2139,83 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
   );
 }
 
-function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
+function AdminInventoryLog({ inventoryData, branches, products, systemConfig, systemOptions, getBranchInventory }) {
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const uniqueBranchNames = useMemo(() => [...new Set(branches.map(b => b.branchName))].filter(Boolean), [branches]);
+  const branchOptions = uniqueBranchNames.map(name => ({ value: name, label: name }));
+
+  useEffect(() => {
+    if (!selectedBranch && uniqueBranchNames.length > 0) setSelectedBranch(uniqueBranchNames[0]);
+  }, [uniqueBranchNames, selectedBranch]);
+
+  const branchInventory = useMemo(() => {
+    if (!selectedBranch) return [];
+    return getBranchInventory(selectedBranch);
+  }, [selectedBranch, inventoryData, products, systemConfig]);
+
+  const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories);
+  const [activeCategory, setActiveCategory] = useState('');
+  useEffect(() => {
+    if ((!activeCategory || !categories.includes(activeCategory)) && categories.length > 0) setActiveCategory(categories[0]);
+  }, [categories, activeCategory]);
+
+  const todayStr = new Date().toLocaleDateString('zh-TW');
+  const itemsInCategory = branchInventory.filter(i => i.category === activeCategory);
+  const filledCount = itemsInCategory.filter(i => i.currentStock !== '' && i.currentStock !== undefined && i.currentStock !== null).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 font-bold text-slate-800"><ClipboardList className="w-5 h-5 text-blue-600" />庫存管理 — 各門店每日點貨紀錄</div>
+        <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="w-full md:w-auto min-w-[160px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800 h-full" />
+      </div>
+
+      <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-blue-800 text-lg">{selectedBranch} — {todayStr}</h3>
+            <p className="text-sm text-blue-600 font-medium mt-1">今日點貨進度：已填 {filledCount} / {itemsInCategory.length} 品項</p>
+          </div>
+          <div className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-lg">{itemsInCategory.length > 0 ? Math.round(filledCount / itemsInCategory.length * 100) : 0}%</div>
+        </div>
+        <div className="w-full bg-blue-200 rounded-full h-2.5 mt-3 overflow-hidden"><div className="bg-blue-600 h-2.5 rounded-full transition-all" style={{ width: `${itemsInCategory.length > 0 ? (filledCount / itemsInCategory.length * 100) : 0}%` }}></div></div>
+      </div>
+
+      <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x">
+        {categories.map(cat => (
+          <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-5 py-3 rounded-[1rem] font-bold whitespace-nowrap transition-all shadow-sm border text-[15px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200'}`}>{formatCategory(cat)}</button>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="grid grid-cols-[1fr_100px_100px] gap-0 bg-slate-100 px-5 py-3 text-xs font-bold text-slate-500">
+          <span>商品名稱</span>
+          <span className="text-center">庫存點貨</span>
+          <span className="text-center">叫貨數量</span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {itemsInCategory.map(item => {
+            const stockNum = parseFloat(item.currentStock) || 0;
+            const orderNum = parseFloat(item.manualOrderQty) || 0;
+            const isFilled = item.currentStock !== '' && item.currentStock !== undefined && item.currentStock !== null;
+            return (
+              <div key={item.id} className={`grid grid-cols-[1fr_100px_100px] gap-0 px-5 py-3 items-center ${!isFilled ? 'bg-slate-50' : ''}`}>
+                <div>
+                  <span className="font-bold text-slate-800">{item.name}</span>
+                  {item.tag && <span className="ml-2 text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-bold">{item.tag}</span>}
+                </div>
+                <div className="text-center font-black text-blue-700 text-[16px]">{isFilled ? `${stockNum} ${item.unit}` : <span className="text-slate-300 text-sm">—</span>}</div>
+                <div className="text-center font-black text-orange-600 text-[16px]">{orderNum > 0 ? `${orderNum} ${item.unit}` : <span className="text-slate-300 text-sm">—</span>}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateOrderQtyCloud, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
   const [activeCategory, setActiveCategory] = useState('');
   const [searchTerm, setSearchTerm] = useState(''); 
   const [errorItemId, setErrorItemId] = useState(null); 
@@ -2234,51 +2240,24 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
 
     const currentCategoryItems = visibleInventory.filter(item => item.category === activeCategory);
 
-    const uninventoriedItem = currentCategoryItems.find(item => item.currentStock === '' || item.currentStock === undefined || item.currentStock === null);
-
-    if (uninventoriedItem) {
-      showToast(`還有商品未點貨到！請確認【${uninventoriedItem.name}】數量`, 'error');
-      setErrorItemId(uninventoriedItem.id);
-      
-      setTimeout(() => {
-        const el = document.getElementById(`item-${uninventoriedItem.id}`);
-        if (el) {
-          const y = el.getBoundingClientRect().top + window.scrollY - 120;
-          window.scrollTo({ top: y, behavior: 'smooth' });
-        }
-      }, 100);
-
-      setTimeout(() => setErrorItemId(null), 3000);
-      return; 
-    }
-
     const itemsToOrder = currentCategoryItems
       .filter(item => {
-        const stockNum = parseFloat(item.currentStock) || 0;
-        return stockNum < item.activeParLevel;
+        const oQty = parseFloat(item.manualOrderQty) || 0;
+        return oQty > 0;
       })
       .map(item => {
         const stockNum = parseFloat(item.currentStock) || 0;
-        const diff = item.activeParLevel - stockNum;
-        
-        const finalOrderQty = item.reorderQty && item.reorderQty > 0 
-          ? parseFloat(item.reorderQty) 
-          : parseFloat(diff.toFixed(1)); 
-          
-        const finalUnit = item.reorderQty && item.reorderQty > 0 && item.reorderUnit
-          ? item.reorderUnit
-          : item.unit;
-        
+        const oQty = parseFloat(item.manualOrderQty) || 0;
         return {
           id: item.id, category: item.category, name: item.name, code: item.code || '',
-          unit: finalUnit, 
+          unit: item.unit, 
           currentStock: stockNum, parLevel: item.activeParLevel, 
-          orderQty: Math.max(0, finalOrderQty)
+          orderQty: oQty
         };
       });
 
     if (itemsToOrder.length === 0) { 
-      showToast(`「${formatCategory(activeCategory)}」庫存充足，達到安全庫存！`, 'success'); 
+      showToast(`「${formatCategory(activeCategory)}」沒有需要叫貨的商品（請在右側「叫貨」欄位輸入數量）`, 'error'); 
       return; 
     }
     
@@ -2380,6 +2359,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
         {visibleInventory.filter(i => searchTerm ? i.name.toLowerCase().includes(searchTerm.toLowerCase()) : i.category === activeCategory).map(item => {
           const stockNum = parseFloat(item.currentStock) || 0;
           const isDeficient = stockNum < item.activeParLevel && item.currentStock !== ''; 
+          const hasOrder = parseFloat(item.manualOrderQty) > 0;
           return (
             <div 
               id={`item-${item.id}`}
@@ -2409,31 +2389,50 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
                 </div>
                 {isDeficient && (
                   <div className="bg-red-100 text-red-600 px-3 py-1.5 rounded-xl text-[12px] font-black flex items-center gap-1 border border-red-200/50 shadow-sm">
-                    <AlertCircle className="w-4 h-4" /> 
-                    {item.reorderQty > 0 ? `將叫貨 ${item.reorderQty}${item.reorderUnit || item.unit}` : '需補差額'}
+                    <AlertCircle className="w-4 h-4" /> 不足
                   </div>
                 )}
               </div>
               
-              <div className={`mt-4 bg-white border rounded-[1.2rem] flex items-center p-2.5 shadow-inner relative transition-all ${errorItemId === item.id ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 focus-within:ring-2 focus-within:ring-orange-400 focus-within:border-orange-400'}`}>
-                <div className={`flex flex-col items-center justify-center text-[11px] font-black leading-[1.2] w-6 select-none ml-1 ${errorItemId === item.id ? 'text-red-500' : 'text-slate-400'}`}>
-                  <span>實</span><span>有</span><span>庫</span><span>存</span>
+              <div className="mt-4 flex gap-2">
+                <div className={`flex-1 bg-white border rounded-[1.2rem] flex items-center p-2 shadow-inner transition-all ${errorItemId === item.id ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 focus-within:ring-2 focus-within:ring-blue-400 focus-within:border-blue-400'}`}>
+                  <div className="flex flex-col items-center justify-center text-[10px] font-black leading-[1.2] w-5 select-none ml-0.5 text-blue-400">
+                    <span>庫</span><span>存</span><span>點</span><span>貨</span>
+                  </div>
+                  <div className="flex-1 relative flex items-center justify-center h-[42px] px-1">
+                    <NumberInput
+                      min="0" step="0.5"
+                      value={item.currentStock}
+                      onChange={(val) => { 
+                        updateStockCloud(item.id, val); 
+                        setActiveCategory(item.category); 
+                        if(errorItemId === item.id) setErrorItemId(null); 
+                      }}
+                      className="w-full h-full bg-transparent text-center text-[24px] font-black text-blue-600 outline-none placeholder-slate-300"
+                      placeholder="數量"
+                    />
+                  </div>
+                  <div className="w-7 text-center text-[13px] font-bold select-none mr-0.5 text-slate-400">{item.unit}</div>
                 </div>
-                <div className="flex-1 relative flex items-center justify-center h-[46px] px-2">
-                  <NumberInput
-                    min="0"
-                    step="0.5"
-                    value={item.currentStock}
-                    onChange={(val) => { 
-                      updateStockCloud(item.id, val); 
-                      setActiveCategory(item.category); 
-                      if(errorItemId === item.id) setErrorItemId(null); 
-                    }}
-                    className="w-full h-full bg-transparent text-center text-[28px] font-black text-orange-600 outline-none placeholder-slate-300"
-                    placeholder="數量"
-                  />
+
+                <div className={`flex-1 bg-white border rounded-[1.2rem] flex items-center p-2 shadow-inner transition-all ${hasOrder ? 'border-orange-300 ring-2 ring-orange-100 bg-orange-50/30' : 'border-slate-200 focus-within:ring-2 focus-within:ring-orange-400 focus-within:border-orange-400'}`}>
+                  <div className="flex flex-col items-center justify-center text-[10px] font-black leading-[1.2] w-5 select-none ml-0.5 text-orange-400">
+                    <span>叫</span><span>貨</span><span>數</span><span>量</span>
+                  </div>
+                  <div className="flex-1 relative flex items-center justify-center h-[42px] px-1">
+                    <NumberInput
+                      min="0" step="0.5"
+                      value={item.manualOrderQty}
+                      onChange={(val) => { 
+                        updateOrderQtyCloud(item.id, val); 
+                        setActiveCategory(item.category); 
+                      }}
+                      className="w-full h-full bg-transparent text-center text-[24px] font-black text-orange-600 outline-none placeholder-slate-300"
+                      placeholder="數量"
+                    />
+                  </div>
+                  <div className="w-7 text-center text-[13px] font-bold select-none mr-0.5 text-slate-400">{item.unit}</div>
                 </div>
-                <div className={`w-8 text-center text-[15px] font-bold select-none mr-1 ${errorItemId === item.id ? 'text-red-500' : 'text-slate-500'}`}>{item.unit}</div>
               </div>
             </div>
           )
