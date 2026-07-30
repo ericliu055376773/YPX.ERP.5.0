@@ -104,20 +104,22 @@ const fetchTWHolidays = async () => {
   }
 };
 
-// 智能判斷明日 (優先使用行政院行事曆，含國定假日)
+// 智能判斷明日 (優先使用行政院行事曆，含國定假日，週五也視為假日)
 const getEffectiveHolidayMode = (modeStr) => {
   if (modeStr === 'holiday') return true;
   if (modeStr === 'weekday') return false;
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayOfWeek = tomorrow.getDay(); // 0=日, 5=五, 6=六
+  // 週五固定視為假日（備貨需求較高）
+  if (dayOfWeek === 5) return true;
   // 優先：行政院行事曆
   if (twHolidaysLoaded && twHolidaySet.size > 0) {
     const dateStr = `${tomorrow.getFullYear()}${String(tomorrow.getMonth()+1).padStart(2,'0')}${String(tomorrow.getDate()).padStart(2,'0')}`;
     return twHolidaySet.has(dateStr);
   }
   // 備援：週六日
-  const day = tomorrow.getDay();
-  return day === 0 || day === 6;
+  return dayOfWeek === 0 || dayOfWeek === 6;
 };
 
 // 取得營業日字串 (以凌晨 4 點為跨日基準，避免半夜點貨被清空)
@@ -1704,7 +1706,26 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
 
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
         <div className="flex items-center gap-2 font-bold text-slate-800"><Settings className="w-5 h-5 text-blue-600" />設定門店安全庫存</div>
-        <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="w-full md:w-auto min-w-[160px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800 h-full" />
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <CustomDropdown value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} className="flex-1 md:flex-none min-w-[160px]" buttonClassName="px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-blue-800 h-full" />
+          {selectedBranch && (
+            <button
+              onClick={async () => {
+                if (!window.confirm(`確定要將「${selectedBranch}」的所有安全庫存設定（平日/假日安全值、盤點單位、叫貨邏輯）同步覆蓋至其他所有門店嗎？\n\n⚠️ 同步後各門店仍可個別調整。`)) return;
+                const sourceData = inventoryData[selectedBranch]?.settings || {};
+                const otherBranches = uniqueBranchNames.filter(b => b !== selectedBranch);
+                for (const branch of otherBranches) {
+                  const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, branch);
+                  await setDoc(docRef, { settings: sourceData }, { merge: true });
+                }
+                showToast(`已將「${selectedBranch}」的設定同步至其他 ${otherBranches.length} 家門店`, 'success');
+              }}
+              className="px-4 py-3 bg-blue-600 text-white rounded-xl font-bold text-[13px] hover:bg-blue-700 transition-colors whitespace-nowrap shadow-sm flex items-center gap-1.5"
+            >
+              <Copy className="w-4 h-4" /> 同步至所有門店
+            </button>
+          )}
+        </div>
       </div>
 
       {selectedBranch && (
@@ -2270,7 +2291,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, a
 
   const effectiveIsHoliday = getEffectiveHolidayMode(systemConfig.holidayMode);
   let modeText = systemConfig.holidayMode === 'auto' 
-    ? (effectiveIsHoliday ? '自動偵測 (明日為週末假日)' : '自動偵測 (明日為平日)')
+    ? (effectiveIsHoliday ? '自動偵測 (明日為假日)' : '自動偵測 (明日為平日)')
     : (effectiveIsHoliday ? '總部設定 (假日)' : '總部設定 (平日)');
 
   return (
