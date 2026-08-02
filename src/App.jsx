@@ -265,7 +265,7 @@ export default function App() {
        if (newSettings) {
          Object.keys(newSettings).forEach(pId => {
             if (newSettings[pId].currentStock !== '' && newSettings[pId].currentStock !== undefined && newSettings[pId].currentStock !== null) {
-               newSettings[pId] = { ...newSettings[pId], currentStock: '', manualOrderQty: '' }; // 將庫存和叫貨數量清空
+               newSettings[pId] = { ...newSettings[pId], currentStock: '', currentStockMajor: '', manualOrderQty: '' }; // 將庫存和叫貨數量清空
                hasChanges = true;
             }
          });
@@ -364,7 +364,10 @@ export default function App() {
         defaultUnit: product.unit,
         reorderQty: (bSetting.reorderQty !== undefined && bSetting.reorderQty !== null) ? bSetting.reorderQty : (product.defaultReorderQty || 0),
         reorderUnit: (bSetting.reorderUnit !== undefined && bSetting.reorderUnit !== null) ? bSetting.reorderUnit : (product.defaultReorderUnit || ''),
-        manualOrderQty: (bSetting.manualOrderQty !== undefined && bSetting.manualOrderQty !== null) ? bSetting.manualOrderQty : ''
+        manualOrderQty: (bSetting.manualOrderQty !== undefined && bSetting.manualOrderQty !== null) ? bSetting.manualOrderQty : '',
+        currentStockMajor: (bSetting.currentStockMajor !== undefined && bSetting.currentStockMajor !== null) ? bSetting.currentStockMajor : '',
+        unitMajor: product.unitMajor || '',
+        orderUnit: product.orderUnit || ''
       };
     });
   };
@@ -378,6 +381,7 @@ export default function App() {
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .vertical-text { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 2px; }
+        .writing-vertical { writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1px; }
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
           20%, 60% { transform: translateX(-6px); }
@@ -1057,6 +1061,8 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       name: newName, 
       code: (formData.get('code') || '').trim().toUpperCase(),
       tag: (formData.get('tag') || '').trim(),
+      unitMajor: (formData.get('unitMajor') || '').trim(),
+      orderUnit: (formData.get('orderUnit') || '').trim(),
       category: newCategory, 
       unit: formData.get('unit').trim(), 
       defaultPar: newPar,
@@ -1170,7 +1176,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                   </select>
                 </div>
                 <div className="flex-1">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">盤點單位</label>
+                  <label className="text-xs font-bold text-slate-500 mb-1 block">盤點單位(小)</label>
                   <select required name="unit" defaultValue={editingProduct.unit} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold shadow-inner text-slate-700">
                     <option value="" disabled>請選擇</option>
                     {(systemOptions.units || []).filter(u => {
@@ -1181,6 +1187,37 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                        return <option key={i} value={uName}>{uName}</option>;
                     })}
                     {!((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unit)) && <option value={editingProduct.unit}>{editingProduct.unit}</option>}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-bold text-blue-500 mb-1 block">盤點大單位（件/箱，選填）</label>
+                  <select name="unitMajor" defaultValue={editingProduct.unitMajor || ''} className="w-full px-3 py-3 bg-blue-50 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold shadow-inner text-blue-700">
+                    <option value="">不使用（僅小單位）</option>
+                    {(systemOptions.units || []).filter(u => {
+                       const uCat = typeof u === 'string' ? '通用' : u.category;
+                       return uCat === '通用' || uCat === editingProduct.category;
+                    }).map((u, i) => {
+                       const uName = typeof u === 'string' ? u : u.name;
+                       return <option key={i} value={uName}>{uName}</option>;
+                    })}
+                    {editingProduct.unitMajor && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unitMajor)) && <option value={editingProduct.unitMajor}>{editingProduct.unitMajor}</option>}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs font-bold text-orange-500 mb-1 block">叫貨單位</label>
+                  <select name="orderUnit" defaultValue={editingProduct.orderUnit || ''} className="w-full px-3 py-3 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[16px] font-bold shadow-inner text-orange-700">
+                    <option value="">同盤點單位</option>
+                    {(systemOptions.units || []).filter(u => {
+                       const uCat = typeof u === 'string' ? '通用' : u.category;
+                       return uCat === '通用' || uCat === editingProduct.category;
+                    }).map((u, i) => {
+                       const uName = typeof u === 'string' ? u : u.name;
+                       return <option key={i} value={uName}>{uName}</option>;
+                    })}
+                    {editingProduct.orderUnit && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.orderUnit)) && <option value={editingProduct.orderUnit}>{editingProduct.orderUnit}</option>}
                   </select>
                 </div>
               </div>
@@ -2114,6 +2151,14 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
     await setDoc(docRef, { settings: { [productId]: { manualOrderQty: valueToSave } } }, { merge: true });
   };
 
+  const updateStockMajorCloud = async (productId, newValue) => {
+    if(!fbUser) return;
+    const valueToSave = newValue === '' ? '' : parseFloat(newValue); 
+    if (valueToSave !== '' && isNaN(valueToSave)) return;
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+    await setDoc(docRef, { settings: { [productId]: { currentStockMajor: valueToSave } } }, { merge: true });
+  };
+
   const addOrderCloud = async (newOrderData) => {
     if(!fbUser) return;
     const orderDoc = { ...newOrderData, branchUsername: user.username, branchName: user.branchName, timestamp: Date.now() };
@@ -2133,7 +2178,7 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
              </button>
            ))}
         </div>
-        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
+        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
       </div>
       <BottomNav tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} themeColor={isManager ? 'text-orange-600' : 'text-green-600'} />
@@ -2264,7 +2309,7 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
   );
 }
 
-function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateOrderQtyCloud, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
+function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateStockMajorCloud, updateOrderQtyCloud, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
   const [activeCategory, setActiveCategory] = useState('');
   const [searchTerm, setSearchTerm] = useState(''); 
   const [errorItemId, setErrorItemId] = useState(null); 
@@ -2299,7 +2344,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
         const oQty = parseFloat(item.manualOrderQty) || 0;
         return {
           id: item.id, category: item.category, name: item.name, code: item.code || '',
-          unit: item.unit, 
+          unit: item.orderUnit || item.unit, 
           currentStock: stockNum, parLevel: item.activeParLevel, 
           orderQty: oQty
         };
@@ -2443,44 +2488,49 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                 )}
               </div>
               
-              <div className="mt-4 flex gap-2">
-                <div className={`flex-1 bg-white border rounded-[1.2rem] flex items-center p-2 shadow-inner transition-all ${errorItemId === item.id ? 'border-red-400 ring-2 ring-red-100' : 'border-slate-200 focus-within:ring-2 focus-within:ring-blue-400 focus-within:border-blue-400'}`}>
-                  <div className="flex flex-col items-center justify-center text-[10px] font-black leading-[1.2] w-5 select-none ml-0.5 text-blue-400">
-                    <span>庫</span><span>存</span><span>點</span><span>貨</span>
+              <div className="mt-4 space-y-2">
+                <div className={`flex gap-2 ${item.unitMajor ? '' : ''}`}>
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <span className="text-[10px] font-black text-blue-400 writing-vertical">庫存</span>
                   </div>
-                  <div className="flex-1 relative flex items-center justify-center h-[42px] px-1">
+                  {item.unitMajor && (
+                    <div className={`flex-1 bg-white border rounded-xl flex items-center p-1.5 shadow-inner transition-all border-blue-200 focus-within:ring-2 focus-within:ring-blue-400`}>
+                      <NumberInput
+                        min="0" step="1"
+                        value={item.currentStockMajor}
+                        onChange={(val) => { updateStockMajorCloud(item.id, val); setActiveCategory(item.category); }}
+                        className="w-full h-[38px] bg-transparent text-center text-[22px] font-black text-blue-600 outline-none placeholder-slate-300"
+                        placeholder="0"
+                      />
+                      <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{item.unitMajor}</span>
+                    </div>
+                  )}
+                  <div className={`flex-1 bg-white border rounded-xl flex items-center p-1.5 shadow-inner transition-all ${errorItemId === item.id ? 'border-red-400 ring-2 ring-red-100' : 'border-blue-200 focus-within:ring-2 focus-within:ring-blue-400'}`}>
                     <NumberInput
                       min="0" step="0.5"
                       value={item.currentStock}
-                      onChange={(val) => { 
-                        updateStockCloud(item.id, val); 
-                        setActiveCategory(item.category); 
-                        if(errorItemId === item.id) setErrorItemId(null); 
-                      }}
-                      className="w-full h-full bg-transparent text-center text-[24px] font-black text-blue-600 outline-none placeholder-slate-300"
-                      placeholder="數量"
+                      onChange={(val) => { updateStockCloud(item.id, val); setActiveCategory(item.category); if(errorItemId === item.id) setErrorItemId(null); }}
+                      className="w-full h-[38px] bg-transparent text-center text-[22px] font-black text-blue-600 outline-none placeholder-slate-300"
+                      placeholder="0"
                     />
+                    <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{item.unit}</span>
                   </div>
-                  <div className="w-7 text-center text-[13px] font-bold select-none mr-0.5 text-slate-400">{item.unit}</div>
                 </div>
 
-                <div className={`flex-1 bg-white border rounded-[1.2rem] flex items-center p-2 shadow-inner transition-all ${hasOrder ? 'border-orange-300 ring-2 ring-orange-100 bg-orange-50/30' : 'border-slate-200 focus-within:ring-2 focus-within:ring-orange-400 focus-within:border-orange-400'}`}>
-                  <div className="flex flex-col items-center justify-center text-[10px] font-black leading-[1.2] w-5 select-none ml-0.5 text-orange-400">
-                    <span>叫</span><span>貨</span><span>數</span><span>量</span>
+                <div className="flex gap-2">
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <span className="text-[10px] font-black text-orange-400 writing-vertical">叫貨</span>
                   </div>
-                  <div className="flex-1 relative flex items-center justify-center h-[42px] px-1">
+                  <div className={`flex-1 bg-white border rounded-xl flex items-center p-1.5 shadow-inner transition-all ${hasOrder ? 'border-orange-300 ring-2 ring-orange-100 bg-orange-50/30' : 'border-slate-200 focus-within:ring-2 focus-within:ring-orange-400'}`}>
                     <NumberInput
                       min="0" step="0.5"
                       value={item.manualOrderQty}
-                      onChange={(val) => { 
-                        updateOrderQtyCloud(item.id, val); 
-                        setActiveCategory(item.category); 
-                      }}
-                      className="w-full h-full bg-transparent text-center text-[24px] font-black text-orange-600 outline-none placeholder-slate-300"
-                      placeholder="數量"
+                      onChange={(val) => { updateOrderQtyCloud(item.id, val); setActiveCategory(item.category); }}
+                      className="w-full h-[38px] bg-transparent text-center text-[22px] font-black text-orange-600 outline-none placeholder-slate-300"
+                      placeholder="0"
                     />
+                    <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{item.orderUnit || item.unit}</span>
                   </div>
-                  <div className="w-7 text-center text-[13px] font-bold select-none mr-0.5 text-slate-400">{item.unit}</div>
                 </div>
               </div>
             </div>
