@@ -1063,6 +1063,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       tag: (formData.get('tag') || '').trim(),
       unitMajor: (formData.get('unitMajor') || '').trim(),
       orderUnit: (formData.get('orderUnit') || '').trim(),
+      suspended: editingProduct.suspended || false,
       category: newCategory, 
       unit: formData.get('unit').trim(), 
       defaultPar: newPar,
@@ -1137,6 +1138,12 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Edit2 className="w-5 h-5 text-blue-600"/> 編輯商品內容</h3>
             <form onSubmit={handleSaveProduct} className="space-y-3">
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${editingProduct.suspended ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                <span className={`text-sm font-bold ${editingProduct.suspended ? 'text-red-600' : 'text-green-600'}`}>{editingProduct.suspended ? '⛔ 此商品已停售' : '✅ 商品販售中'}</span>
+                <button type="button" onClick={() => setEditingProduct({...editingProduct, suspended: !editingProduct.suspended})} className={`relative w-12 h-7 rounded-full transition-colors ${editingProduct.suspended ? 'bg-red-400' : 'bg-green-500'}`}>
+                  <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${editingProduct.suspended ? 'left-0.5' : 'left-[22px]'}`}></div>
+                </button>
+              </div>
               <div className="flex gap-3">
                 <div className="flex-1">
                   <label className="text-xs font-bold text-blue-500 mb-1 block">所屬分類 (可轉移)</label>
@@ -1435,11 +1442,12 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
             </div>
             <div className="flex-1">
               {items.map(p => (
-                <div key={p.id} className="flex items-stretch border-b border-slate-100 bg-white transition-all overflow-hidden last:border-0 hover:bg-slate-50">
+                <div key={p.id} className={`flex items-stretch border-b border-slate-100 transition-all overflow-hidden last:border-0 hover:bg-slate-50 ${p.suspended ? 'bg-slate-100 opacity-60' : 'bg-white'}`}>
                   <div className="flex-1 px-4 py-3 flex flex-col justify-center">
                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                       {p.suspended && <span className="text-[10px] font-black text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md">停售</span>}
                        {p.code && <span className="text-[10px] font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md tracking-widest">{p.code}</span>}
-                       <span className="font-bold text-slate-700 text-[16px]">{p.name}</span>
+                       <span className={`font-bold text-[16px] ${p.suspended ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{p.name}</span>
                        <span className="text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md">{p.unit}</span>
                        {p.includeInUseQty && (
                          <span className="text-[10px] bg-purple-50 text-purple-600 border border-purple-200 px-1.5 py-0.5 rounded-md font-bold shadow-sm whitespace-nowrap">含使用中</span>
@@ -2315,13 +2323,12 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   const [errorItemId, setErrorItemId] = useState(null); 
 
   const globalHidden = systemConfig.globalHiddenCategories || [];
-  const allHidden = useMemo(() => [...new Set([...hiddenCategories, ...globalHidden])], [hiddenCategories, globalHidden]);
 
   const visibleInventory = useMemo(() => {
-    return inventory.filter(i => !allHidden.includes(i.category));
-  }, [inventory, allHidden]);
+    return inventory.filter(i => !globalHidden.includes(i.category));
+  }, [inventory, globalHidden]);
 
-  const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories).filter(c => !allHidden.includes(c));
+  const categories = getSortedCategories(products, systemConfig.categoryOrder, systemOptions.categories).filter(c => !globalHidden.includes(c));
 
   useEffect(() => { 
     if ((!activeCategory || !categories.includes(activeCategory)) && categories.length > 0) {
@@ -2454,18 +2461,22 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
           const stockNum = parseFloat(item.currentStock) || 0;
           const isDeficient = stockNum < item.activeParLevel && item.currentStock !== ''; 
           const hasOrder = parseFloat(item.manualOrderQty) > 0;
+          const isSuspended = item.suspended;
           return (
             <div 
               id={`item-${item.id}`}
               key={item.id} 
               onClick={() => setActiveCategory(item.category)}
-              className={`p-5 rounded-[1.8rem] border-2 transition-colors relative shadow-sm cursor-pointer ${errorItemId === item.id ? 'ring-4 ring-red-500 border-red-500 bg-red-50 animate-shake z-10' : isDeficient ? 'bg-[#fffbf0] border-orange-200' : 'bg-white border-slate-100'} ${searchTerm && activeCategory === item.category ? 'ring-2 ring-orange-400 border-orange-400' : ''}`}
+              className={`p-5 rounded-[1.8rem] border-2 transition-colors relative shadow-sm cursor-pointer ${isSuspended ? 'bg-slate-100 border-slate-200 opacity-60' : errorItemId === item.id ? 'ring-4 ring-red-500 border-red-500 bg-red-50 animate-shake z-10' : isDeficient ? 'bg-[#fffbf0] border-orange-200' : 'bg-white border-slate-100'} ${searchTerm && activeCategory === item.category ? 'ring-2 ring-orange-400 border-orange-400' : ''}`}
             >
               <div className="flex justify-between items-start mb-2">
                 <div>
                   {searchTerm && <span className="text-[11px] font-bold text-slate-400 block mb-0.5">{formatCategory(item.category)}</span>}
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                     <h3 className="text-[20px] font-black text-slate-800 tracking-wide m-0 leading-tight">{item.name}</h3>
+                     <h3 className={`text-[20px] font-black tracking-wide m-0 leading-tight ${isSuspended ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{item.name}</h3>
+                     {isSuspended && (
+                        <span className="bg-red-100 text-red-600 border border-red-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black">停售</span>
+                     )}
                      {item.tag && (
                         <span className="bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm">
                           {item.tag}
@@ -2488,7 +2499,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                 )}
               </div>
               
-              <div className="mt-4 space-y-2">
+              <div className={`mt-4 space-y-2 ${isSuspended ? 'pointer-events-none opacity-30' : ''}`}>
                 <div className={`flex gap-2 ${item.unitMajor ? '' : ''}`}>
                   <div className="flex items-center gap-0.5 shrink-0">
                     <span className="text-[10px] font-black text-blue-400 writing-vertical">庫存</span>
