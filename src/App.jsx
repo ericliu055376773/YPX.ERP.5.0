@@ -367,7 +367,8 @@ export default function App() {
         manualOrderQty: (bSetting.manualOrderQty !== undefined && bSetting.manualOrderQty !== null) ? bSetting.manualOrderQty : '',
         currentStockMajor: (bSetting.currentStockMajor !== undefined && bSetting.currentStockMajor !== null) ? bSetting.currentStockMajor : '',
         unitMajor: product.unitMajor || '',
-        orderUnit: product.orderUnit || ''
+        orderUnit: product.orderUnit || '',
+        safetyUnit: product.safetyUnit || ''
       };
     });
   };
@@ -531,7 +532,7 @@ function LocationGuard({ user, systemConfig, children, logout }) {
       const dist = Math.round(R * c);
 
       setDistance(dist);
-      if (dist <= 300) setStatus('passed');
+      if (dist <= 150) setStatus('passed');
       else setStatus('failed');
     };
     const error = () => setStatus('error');
@@ -557,7 +558,7 @@ function LocationGuard({ user, systemConfig, children, logout }) {
           <>
             <div className="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner"><MapPinOff className="w-12 h-12" /></div>
             <h2 className="text-2xl font-black text-slate-800 mb-2">不在授權範圍內</h2>
-            <p className="text-slate-600 text-[15px] mb-8 font-medium leading-relaxed">您目前距離門店約 <strong className="text-red-600 text-lg bg-red-50 px-2 py-0.5 rounded-lg">{distance} 公尺</strong>。<br/><span className="text-sm mt-2 block text-slate-400">必須在店面周圍 300 公尺內才能登入。</span></p>
+            <p className="text-slate-600 text-[15px] mb-8 font-medium leading-relaxed">您目前距離門店約 <strong className="text-red-600 text-lg bg-red-50 px-2 py-0.5 rounded-lg">{distance} 公尺</strong>。<br/><span className="text-sm mt-2 block text-slate-400">必須在店面周圍 150 公尺內才能登入。</span></p>
           </>
         )}
         {status === 'error' && (
@@ -905,6 +906,7 @@ function AdminCategoryManager({ products, systemConfig, systemOptions, showToast
 
 function AdminProductManager({ products, showToast, fbUser, systemOptions, systemConfig, inventoryData, db, appId }) {
   const [searchTerm, setSearchTerm] = useState(''); 
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [editingProduct, setEditingProduct] = useState(null);
   const [editReorderMode, setEditReorderMode] = useState('diff'); 
   const [deletingProduct, setDeletingProduct] = useState(null);
@@ -1063,6 +1065,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       tag: (formData.get('tag') || '').trim(),
       unitMajor: (formData.get('unitMajor') || '').trim(),
       orderUnit: (formData.get('orderUnit') || '').trim(),
+      safetyUnit: (formData.get('safetyUnit') || '').trim(),
       suspended: editingProduct.suspended || false,
       category: newCategory, 
       unit: formData.get('unit').trim(), 
@@ -1100,7 +1103,11 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
     setDeletingProduct(null);
   };
 
-  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchTerm.toLowerCase())));
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesCategory = !selectedCategory || p.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
   const groupedProducts = filteredProducts.reduce((groups, product) => {
     if (!groups[product.category]) groups[product.category] = [];
     groups[product.category].push(product);
@@ -1135,9 +1142,9 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
 
       {editingProduct && (
         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Edit2 className="w-5 h-5 text-blue-600"/> 編輯商品內容</h3>
-            <form onSubmit={handleSaveProduct} className="space-y-3">
+            <form onSubmit={handleSaveProduct} className="space-y-4">
               <div className={`flex items-center justify-between p-3 rounded-xl border ${editingProduct.suspended ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
                 <span className={`text-sm font-bold ${editingProduct.suspended ? 'text-red-600' : 'text-green-600'}`}>{editingProduct.suspended ? '⛔ 此商品已停售' : '✅ 商品販售中'}</span>
                 <button type="button" onClick={() => setEditingProduct({...editingProduct, suspended: !editingProduct.suspended})} className={`relative w-12 h-7 rounded-full transition-colors ${editingProduct.suspended ? 'bg-red-400' : 'bg-green-500'}`}>
@@ -1145,98 +1152,36 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
                 </button>
               </div>
               <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-blue-500 mb-1 block">所屬分類 (可轉移)</label>
-                  <select required name="category" value={editingProduct.category} onChange={(e) => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full px-3 py-3 bg-blue-50 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[15px] font-bold text-blue-700 shadow-inner">
-                    {categories.map(c => <option key={c} value={c}>{formatCategory(c)}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">商品名稱</label>
-                  <input required name="name" defaultValue={editingProduct.name} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[15px] font-bold text-slate-800 shadow-inner" />
-                </div>
+                <div className="flex-1"><label className="text-xs font-bold text-blue-500 mb-1 block">所屬分類</label><select required name="category" value={editingProduct.category} onChange={(e) => setEditingProduct({...editingProduct, category: e.target.value})} className="w-full px-3 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[14px] font-bold text-blue-700 shadow-inner outline-none">{categories.map(c => <option key={c} value={c}>{formatCategory(c)}</option>)}</select></div>
+                <div className="flex-1"><label className="text-xs font-bold text-slate-500 mb-1 block">商品名稱</label><input required name="name" defaultValue={editingProduct.name} className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-[14px] font-bold text-slate-800 shadow-inner outline-none" /></div>
               </div>
-
-              <div>
-                <label className="text-xs font-bold text-emerald-600 mb-1 block">跨系統代號 (同步用)</label>
-                <input name="code" defaultValue={editingProduct.code || ''} placeholder="例如: V001" className="w-full px-3 py-3 bg-emerald-50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none text-[15px] font-black text-emerald-700 shadow-inner uppercase tracking-widest" />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-orange-500 mb-1 block">商品標籤 / 備註（顯示於商品名稱旁）</label>
-                <input name="tag" defaultValue={editingProduct.tag || ''} placeholder="例如: 冷凍、需退冰、限量" className="w-full px-3 py-3 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[15px] font-bold text-orange-700 shadow-inner" />
-              </div>
-              
               <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-blue-500 mb-1 block">平日安全庫存</label>
-                  <select required name="defaultPar" defaultValue={editingProduct.defaultPar} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold text-blue-700 shadow-inner">
-                    <option value="0">0</option>
-                    {Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-orange-500 mb-1 block">假日安全庫存</label>
-                  <select required name="defaultParHoliday" defaultValue={editingProduct.defaultParHoliday !== undefined ? editingProduct.defaultParHoliday : editingProduct.defaultPar} className="w-full px-3 py-3 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[16px] font-bold text-orange-700 shadow-inner">
-                    <option value="0">0</option>
-                    {Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-slate-500 mb-1 block">盤點單位(小)</label>
-                  <select required name="unit" defaultValue={editingProduct.unit} className="w-full px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold shadow-inner text-slate-700">
-                    <option value="" disabled>請選擇</option>
-                    {(systemOptions.units || []).filter(u => {
-                       const uCat = typeof u === 'string' ? '通用' : u.category;
-                       return uCat === '通用' || uCat === editingProduct.category;
-                    }).map((u, i) => {
-                       const uName = typeof u === 'string' ? u : u.name;
-                       return <option key={i} value={uName}>{uName}</option>;
-                    })}
-                    {!((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unit)) && <option value={editingProduct.unit}>{editingProduct.unit}</option>}
-                  </select>
+                <div className="flex-1"><label className="text-xs font-bold text-emerald-600 mb-1 block">跨系統代號</label><input name="code" defaultValue={editingProduct.code || ''} placeholder="V001" className="w-full px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[14px] font-black text-emerald-700 shadow-inner outline-none uppercase tracking-widest" /></div>
+                <div className="flex-1"><label className="text-xs font-bold text-orange-500 mb-1 block">商品標籤</label><input name="tag" defaultValue={editingProduct.tag || ''} placeholder="冷凍、限量" className="w-full px-3 py-2.5 bg-orange-50 border border-orange-200 rounded-xl text-[14px] font-bold text-orange-700 shadow-inner outline-none" /></div>
+              </div>
+              <div className="bg-blue-50/60 p-3 rounded-2xl border border-blue-100 space-y-2">
+                <h4 className="text-xs font-black text-blue-600">📋 盤點設定</h4>
+                <div className="flex gap-2">
+                  <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 mb-0.5 block">小單位</label><select required name="unit" defaultValue={editingProduct.unit} className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-[14px] font-bold text-slate-700 shadow-inner outline-none"><option value="" disabled>選擇</option>{(systemOptions.units || []).filter(u => { const c = typeof u === 'string' ? '通用' : u.category; return c === '通用' || c === editingProduct.category; }).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}{!((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unit)) && <option value={editingProduct.unit}>{editingProduct.unit}</option>}</select></div>
+                  <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 mb-0.5 block">大單位（選填）</label><select name="unitMajor" defaultValue={editingProduct.unitMajor || ''} className="w-full px-2 py-2 bg-white border border-blue-200 rounded-lg text-[14px] font-bold text-blue-700 shadow-inner outline-none"><option value="">不使用</option>{(systemOptions.units || []).filter(u => { const c = typeof u === 'string' ? '通用' : u.category; return c === '通用' || c === editingProduct.category; }).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}{editingProduct.unitMajor && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unitMajor)) && <option value={editingProduct.unitMajor}>{editingProduct.unitMajor}</option>}</select></div>
                 </div>
               </div>
-
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-blue-500 mb-1 block">盤點大單位（件/箱，選填）</label>
-                  <select name="unitMajor" defaultValue={editingProduct.unitMajor || ''} className="w-full px-3 py-3 bg-blue-50 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-[16px] font-bold shadow-inner text-blue-700">
-                    <option value="">不使用（僅小單位）</option>
-                    {(systemOptions.units || []).filter(u => {
-                       const uCat = typeof u === 'string' ? '通用' : u.category;
-                       return uCat === '通用' || uCat === editingProduct.category;
-                    }).map((u, i) => {
-                       const uName = typeof u === 'string' ? u : u.name;
-                       return <option key={i} value={uName}>{uName}</option>;
-                    })}
-                    {editingProduct.unitMajor && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.unitMajor)) && <option value={editingProduct.unitMajor}>{editingProduct.unitMajor}</option>}
-                  </select>
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-bold text-orange-500 mb-1 block">叫貨單位</label>
-                  <select name="orderUnit" defaultValue={editingProduct.orderUnit || ''} className="w-full px-3 py-3 bg-orange-50 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[16px] font-bold shadow-inner text-orange-700">
-                    <option value="">同盤點單位</option>
-                    {(systemOptions.units || []).filter(u => {
-                       const uCat = typeof u === 'string' ? '通用' : u.category;
-                       return uCat === '通用' || uCat === editingProduct.category;
-                    }).map((u, i) => {
-                       const uName = typeof u === 'string' ? u : u.name;
-                       return <option key={i} value={uName}>{uName}</option>;
-                    })}
-                    {editingProduct.orderUnit && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.orderUnit)) && <option value={editingProduct.orderUnit}>{editingProduct.orderUnit}</option>}
-                  </select>
+              <div className="bg-green-50/60 p-3 rounded-2xl border border-green-100 space-y-2">
+                <h4 className="text-xs font-black text-green-700">🛡️ 安全庫存</h4>
+                <div className="flex gap-2">
+                  <div className="flex-1"><label className="text-[10px] font-bold text-blue-500 mb-0.5 block">平日</label><select required name="defaultPar" defaultValue={editingProduct.defaultPar} className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-[15px] font-bold text-blue-700 shadow-inner outline-none"><option value="0">0</option>{Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}</select></div>
+                  <div className="flex-1"><label className="text-[10px] font-bold text-orange-500 mb-0.5 block">假日</label><select required name="defaultParHoliday" defaultValue={editingProduct.defaultParHoliday !== undefined ? editingProduct.defaultParHoliday : editingProduct.defaultPar} className="w-full px-2 py-2 bg-white border border-orange-200 rounded-lg text-[15px] font-bold text-orange-700 shadow-inner outline-none"><option value="0">0</option>{Array.from({ length: 200 }, (_, i) => (i + 1) * 0.5).map(n => <option key={n} value={n}>{n}</option>)}</select></div>
+                  <div className="flex-1"><label className="text-[10px] font-bold text-green-600 mb-0.5 block">單位</label><select name="safetyUnit" defaultValue={editingProduct.safetyUnit || ''} className="w-full px-2 py-2 bg-white border border-green-200 rounded-lg text-[14px] font-bold text-green-700 shadow-inner outline-none"><option value="">同盤點單位</option>{(systemOptions.units || []).filter(u => { const c = typeof u === 'string' ? '通用' : u.category; return c === '通用' || c === editingProduct.category; }).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}</select></div>
                 </div>
               </div>
-
-              <div className="pt-2 mt-1 border-t border-slate-100">
-                <label className="flex items-center gap-2 cursor-pointer p-2.5 bg-slate-50 rounded-xl border border-slate-200 hover:bg-slate-100 transition-colors">
-                  <input type="checkbox" name="includeInUseQty" defaultChecked={editingProduct.includeInUseQty} className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500" />
-                  <span className="text-[14px] font-bold text-slate-700">標示：盤點需加總「已拆封/使用中」數量</span>
-                </label>
+              <div className="bg-orange-50/60 p-3 rounded-2xl border border-orange-100 space-y-2">
+                <h4 className="text-xs font-black text-orange-600">🚚 叫貨設定</h4>
+                <div className="flex gap-2 items-end">
+                  <div className="flex-1"><label className="text-[10px] font-bold text-slate-500 mb-0.5 block">叫貨單位</label><select name="orderUnit" defaultValue={editingProduct.orderUnit || ''} className="w-full px-2 py-2 bg-white border border-orange-200 rounded-lg text-[14px] font-bold text-orange-700 shadow-inner outline-none"><option value="">同盤點單位</option>{(systemOptions.units || []).filter(u => { const c = typeof u === 'string' ? '通用' : u.category; return c === '通用' || c === editingProduct.category; }).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}{editingProduct.orderUnit && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === editingProduct.orderUnit)) && <option value={editingProduct.orderUnit}>{editingProduct.orderUnit}</option>}</select></div>
+                  <div className="flex-1"><label className="flex items-center gap-2 cursor-pointer pb-1"><input type="checkbox" name="includeInUseQty" defaultChecked={editingProduct.includeInUseQty} className="w-4 h-4 text-purple-600 rounded" /><span className="text-[11px] font-bold text-slate-600">含使用中數量</span></label></div>
+                </div>
               </div>
-
-              <div className="flex gap-2 pt-3"><button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md">儲存修改</button></div>
+              <div className="flex gap-2 pt-1"><button type="button" onClick={() => setEditingProduct(null)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 rounded-xl transition-colors">取消</button><button type="submit" className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md">儲存修改</button></div>
             </form>
           </div>
         </div>
@@ -1429,6 +1374,23 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
         {searchTerm && (
           <button type="button" onClick={() => setSearchTerm('')} className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X className="w-4 h-4" /></button>
         )}
+      </div>
+
+      <div className="relative flex items-center gap-1 mt-3">
+        <button 
+          onClick={() => { const c = document.getElementById('admin-product-cat-scroll'); if(c) c.scrollBy({left: -200, behavior: 'smooth'}); }}
+          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 shadow-sm transition-colors"
+        ><ChevronUp className="w-4 h-4 -rotate-90" /></button>
+        <div id="admin-product-cat-scroll" className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide snap-x flex-1">
+          <button onClick={() => setSelectedCategory('')} className={`snap-start px-5 py-2.5 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm border text-[14px] ${!selectedCategory ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>全部</button>
+          {categories.map(cat => (
+            <button key={cat} onClick={() => setSelectedCategory(cat)} className={`snap-start px-5 py-2.5 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm border text-[14px] ${selectedCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{formatCategory(cat)}</button>
+          ))}
+        </div>
+        <button 
+          onClick={() => { const c = document.getElementById('admin-product-cat-scroll'); if(c) c.scrollBy({left: 200, behavior: 'smooth'}); }}
+          className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-400 hover:text-blue-600 hover:border-blue-300 shadow-sm transition-colors"
+        ><ChevronDown className="w-4 h-4 -rotate-90" /></button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -1711,7 +1673,7 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
           <h3 className={`font-bold text-lg flex items-center gap-2 ${systemConfig.isGPSRequired ? 'text-red-800' : 'text-slate-800'}`}>
             <ShieldCheck className="w-5 h-5" /> 門店 GPS 定位鎖
           </h3>
-          <p className="text-sm text-slate-500 mt-1">開啟後，門店人員必須在店面半徑 300 公尺內才能操作系統。</p>
+          <p className="text-sm text-slate-500 mt-1">開啟後，門店人員必須在店面半徑 150 公尺內才能操作系統。</p>
         </div>
         <button onClick={toggleGPSLock} className={`relative inline-flex h-8 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none shadow-inner ${systemConfig.isGPSRequired ? 'bg-red-500' : 'bg-slate-300'}`}>
           <span className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${systemConfig.isGPSRequired ? 'translate-x-6' : 'translate-x-0'}`} />
@@ -2489,7 +2451,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                      )}
                   </div>
                   <div className="text-[13px] font-bold text-slate-500">
-                    安全庫存: <span className="text-blue-600 text-[15px]">{item.activeParLevel}</span> {item.unit}
+                    安全庫存: <span className="text-blue-600 text-[15px]">{item.activeParLevel}</span> {item.safetyUnit || item.unit}
                   </div>
                 </div>
                 {isDeficient && (
@@ -2548,6 +2510,14 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
           )
         })}
       </div>
+
+      <button 
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        className="fixed bottom-24 right-4 z-40 w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-90 transition-all border-2 border-white"
+        title="回到頂部"
+      >
+        <ChevronUp className="w-6 h-6" />
+      </button>
     </div>
   );
 }
