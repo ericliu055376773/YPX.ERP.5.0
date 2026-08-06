@@ -2513,7 +2513,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
 
       <button 
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-        className="fixed bottom-24 right-4 z-40 w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-90 transition-all border-2 border-white"
+        className="fixed bottom-24 right-4 z-40 w-12 h-12 bg-blue-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-90 transition-all border-2 border-white animate-bounce"
         title="回到頂部"
       >
         <ChevronUp className="w-6 h-6" />
