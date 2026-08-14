@@ -35,6 +35,7 @@ const DB_PRODUCTS = 'hotpot_products';
 const DB_INVENTORY = 'hotpot_inventory';
 const DB_ORDERS = 'hotpot_orders';
 const DB_SYSTEM = 'hotpot_system';
+const DB_EXPIRY = 'hotpot_expiry';
 
 // --- Initial Master Data ---
 const initialProducts = [
@@ -104,22 +105,16 @@ const fetchTWHolidays = async () => {
   }
 };
 
-// 智能判斷明日 (優先使用行政院行事曆，含國定假日，週五也視為假日)
+// 智能判斷明日：四五六=假日庫存，日一二三=平日庫存
 const getEffectiveHolidayMode = (modeStr) => {
   if (modeStr === 'holiday') return true;
   if (modeStr === 'weekday') return false;
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const dayOfWeek = tomorrow.getDay(); // 0=日, 5=五, 6=六
-  // 週五固定視為假日（備貨需求較高）
-  if (dayOfWeek === 5) return true;
-  // 優先：行政院行事曆
-  if (twHolidaysLoaded && twHolidaySet.size > 0) {
-    const dateStr = `${tomorrow.getFullYear()}${String(tomorrow.getMonth()+1).padStart(2,'0')}${String(tomorrow.getDate()).padStart(2,'0')}`;
-    return twHolidaySet.has(dateStr);
-  }
-  // 備援：週六日
-  return dayOfWeek === 0 || dayOfWeek === 6;
+  const dayOfWeek = tomorrow.getDay(); // 0=日, 1=一, 2=二, 3=三, 4=四, 5=五, 6=六
+  // 四(4)、五(5)、六(6) = 假日安全庫存
+  // 日(0)、一(1)、二(2)、三(3) = 平日安全庫存
+  return dayOfWeek >= 4 && dayOfWeek <= 6;
 };
 
 // 取得營業日字串 (以凌晨 4 點為跨日基準，避免半夜點貨被清空)
@@ -154,7 +149,8 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [inventoryData, setInventoryData] = useState({}); 
   const [ordersData, setOrdersData] = useState([]);
-  const [systemConfig, setSystemConfig] = useState({ holidayMode: 'auto', categoryOrder: [], isGPSRequired: false, globalHiddenCategories: [] });
+  const [expiryData, setExpiryData] = useState([]);
+  const [systemConfig, setSystemConfig] = useState({ holidayMode: 'auto', categoryOrder: [], isGPSRequired: false, globalHiddenCategories: [], hideStockInput: false });
   const [systemOptions, setSystemOptions] = useState({ categories: [], units: [], reorderUnits: [] });
 
   const [user, setUser] = useState(null); 
@@ -203,7 +199,7 @@ export default function App() {
       setOrdersData(data.sort((a, b) => b.timestamp - a.timestamp));
     });
     const unsubSystem = onSnapshot(systemRef, (snap) => {
-      let config = { holidayMode: 'auto', categoryOrder: [], isGPSRequired: false, globalHiddenCategories: [] };
+      let config = { holidayMode: 'auto', categoryOrder: [], isGPSRequired: false, globalHiddenCategories: [], hideStockInput: false };
       snap.docs.forEach(d => { 
         if (d.id === 'config') {
           const data = d.data();
@@ -212,6 +208,7 @@ export default function App() {
           if (data.categoryOrder) config.categoryOrder = data.categoryOrder;
           if (data.isGPSRequired !== undefined) config.isGPSRequired = data.isGPSRequired;
           if (data.globalHiddenCategories) config.globalHiddenCategories = data.globalHiddenCategories;
+          if (data.hideStockInput !== undefined) config.hideStockInput = data.hideStockInput;
         }
       });
       setSystemConfig(config);
@@ -233,7 +230,12 @@ export default function App() {
       }
     });
 
-    return () => { unsubUsers(); unsubProducts(); unsubInventory(); unsubOrders(); unsubSystem(); unsubOptions(); };
+    const expiryRef = collection(db, 'artifacts', appId, 'public', 'data', DB_EXPIRY);
+    const unsubExpiry = onSnapshot(expiryRef, (snap) => {
+      setExpiryData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsubUsers(); unsubProducts(); unsubInventory(); unsubOrders(); unsubSystem(); unsubOptions(); unsubExpiry(); };
   }, [fbUser]);
 
   // --- 每日自動歸零盤點庫存 (實有庫存清空) ---
@@ -472,7 +474,7 @@ export default function App() {
               <AdminViews products={products} usersDb={usersDb} inventoryData={inventoryData} ordersData={ordersData} getBranchInventory={getBranchInventory} showToast={showToast} fbUser={fbUser} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
             ) : (
               <LocationGuard user={user} systemConfig={systemConfig} logout={logout}>
-                <BranchViews user={user} fbUser={fbUser} products={products} inventoryData={inventoryData} ordersData={ordersData} branchInventory={getBranchInventory(user.branchName || user.username)} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
+                <BranchViews user={user} fbUser={fbUser} products={products} inventoryData={inventoryData} ordersData={ordersData} expiryData={expiryData} branchInventory={getBranchInventory(user.branchName || user.username)} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
               </LocationGuard>
             )}
           </main>
@@ -1680,6 +1682,22 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
         </button>
       </div>
 
+      <div className={`p-4 rounded-2xl shadow-sm border flex items-center justify-between transition-colors ${systemConfig.hideStockInput ? 'bg-purple-50 border-purple-200' : 'bg-slate-50 border-slate-200'}`}>
+        <div>
+          <h3 className={`font-bold text-lg flex items-center gap-2 ${systemConfig.hideStockInput ? 'text-purple-800' : 'text-slate-800'}`}>
+            <EyeOff className="w-5 h-5" /> 隱藏庫存點貨欄位
+          </h3>
+          <p className="text-sm text-slate-500 mt-1">開啟後，前台商品卡片只顯示「叫貨數量」，隱藏「庫存點貨」輸入框。</p>
+        </div>
+        <button onClick={async () => {
+          const newVal = !systemConfig.hideStockInput;
+          await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'config'), { hideStockInput: newVal }, { merge: true });
+          showToast(`前台庫存點貨欄位已${newVal ? '隱藏' : '顯示'}`);
+        }} className={`relative inline-flex h-8 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none shadow-inner ${systemConfig.hideStockInput ? 'bg-purple-500' : 'bg-slate-300'}`}>
+          <span className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${systemConfig.hideStockInput ? 'translate-x-6' : 'translate-x-0'}`} />
+        </button>
+      </div>
+
       <div className={`p-4 rounded-2xl shadow-sm border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${effectiveIsHoliday ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-200'}`}>
         <div><h3 className={`font-bold text-lg flex items-center gap-2 ${effectiveIsHoliday ? 'text-orange-800' : 'text-blue-800'}`}><Calendar className="w-5 h-5" />全系統安全庫存：{effectiveIsHoliday ? '假日模式' : '平日模式'}</h3><p className={`text-xs mt-1 font-medium ${effectiveIsHoliday ? 'text-orange-600' : 'text-blue-600'}`}>目前設定：{systemConfig.holidayMode === 'auto' ? '自動偵測' : '手動設定'}</p></div>
         <div className="flex bg-white/50 p-1 rounded-xl self-start sm:self-auto shadow-inner border border-slate-200/50">
@@ -2094,15 +2112,27 @@ function AdminAnalytics({ ordersData, branches, products, systemConfig }) {
 // ==========================================
 // 門店視圖 (Branch Views)
 // ==========================================
-function BranchViews({ user, fbUser, products, inventoryData, ordersData, branchInventory, showToast, systemConfig, systemOptions, db, appId }) {
+function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiryData, branchInventory, showToast, systemConfig, systemOptions, db, appId }) {
   const [activeTab, setActiveTab] = useState('inventory');
   
   const isManager = user.role === 'manager' || user.role === 'branch'; 
   const branchOrders = useMemo(() => ordersData.filter(o => o.branchName === user.branchName), [ordersData, user.branchName]);
 
+  // 效期資料：篩選本門店
+  const branchExpiry = useMemo(() => (expiryData || []).filter(e => e.branchName === user.branchName), [expiryData, user.branchName]);
+  const expiryWarnings = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    return branchExpiry.map(e => {
+      const exp = new Date(e.expiryDate); exp.setHours(0,0,0,0);
+      const diff = Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
+      return { ...e, daysLeft: diff };
+    }).filter(e => e.daysLeft <= 7).sort((a, b) => a.daysLeft - b.daysLeft);
+  }, [branchExpiry]);
+
   const tabs = [
     { id: 'inventory', icon: <ClipboardList />, label: '盤點' },
-    ...(isManager ? [{ id: 'orders', icon: <ShoppingCart />, label: '叫貨' }] : [])
+    ...(isManager ? [{ id: 'orders', icon: <ShoppingCart />, label: '叫貨' }] : []),
+    { id: 'expiry', icon: <Calendar />, label: '效期' }
   ];
 
   const updateStockCloud = async (productId, newStockValue) => {
@@ -2148,8 +2178,24 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, branch
              </button>
            ))}
         </div>
+
+        {/* 效期警示橫幅 - 所有頁面都顯示 */}
+        {expiryWarnings.length > 0 && (
+          <div className="mb-4 bg-red-50 border-2 border-red-200 rounded-2xl p-3 shadow-sm">
+            <h4 className="text-red-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期提醒</h4>
+            <div className="flex flex-wrap gap-2">
+              {expiryWarnings.map(e => (
+                <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-yellow-100 text-yellow-700 border-yellow-200'}`}>
+                  {e.productName} — {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
+        {activeTab === 'expiry' && <BranchExpiryManager branchName={user.branchName} products={products} expiryData={branchExpiry} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
       </div>
       <BottomNav tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} themeColor={isManager ? 'text-orange-600' : 'text-green-600'} />
     </>
@@ -2462,7 +2508,8 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
               </div>
               
               <div className={`mt-4 space-y-2 ${isSuspended ? 'pointer-events-none opacity-30' : ''}`}>
-                <div className={`flex gap-2 ${item.unitMajor ? '' : ''}`}>
+                {!systemConfig.hideStockInput && (
+                <div className={`flex gap-2`}>
                   <div className="flex items-center gap-0.5 shrink-0">
                     <span className="text-[10px] font-black text-blue-400 writing-vertical">庫存</span>
                   </div>
@@ -2489,6 +2536,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                     <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{item.unit}</span>
                   </div>
                 </div>
+                )}
 
                 <div className="flex gap-2">
                   <div className="flex items-center gap-0.5 shrink-0">
@@ -2518,6 +2566,90 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
       >
         <ChevronUp className="w-6 h-6" />
       </button>
+    </div>
+  );
+}
+
+function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUser, db, appId }) {
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const sortedExpiry = useMemo(() => {
+    return [...expiryData].map(e => {
+      const exp = new Date(e.expiryDate); exp.setHours(0,0,0,0);
+      return { ...e, daysLeft: Math.ceil((exp - today) / (1000 * 60 * 60 * 24)) };
+    }).sort((a, b) => a.daysLeft - b.daysLeft);
+  }, [expiryData]);
+
+  const handleAdd = async () => {
+    if (!selectedProduct || !expiryDate) { showToast('請選擇商品並輸入有效日期', 'error'); return; }
+    const product = products.find(p => p.id === selectedProduct);
+    if (!product) return;
+    const id = `EXP-${branchName}-${Date.now()}`;
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_EXPIRY, id), {
+      id, branchName, productId: product.id, productName: product.name, category: product.category,
+      expiryDate, createdAt: Date.now()
+    });
+    showToast(`已新增「${product.name}」效期追蹤`);
+    setSelectedProduct('');
+    setExpiryDate('');
+  };
+
+  const handleDelete = async (id) => {
+    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_EXPIRY, id));
+    showToast('已刪除效期紀錄');
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 mb-4"><Calendar className="w-5 h-5 text-blue-600" /> 新增效期追蹤</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">選擇商品</label>
+            <select value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 text-[15px]">
+              <option value="">請選擇商品...</option>
+              {products.filter(p => !p.suspended).map(p => (
+                <option key={p.id} value={p.id}>{formatCategory(p.category)} — {p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-slate-500 mb-1 block">有效日期</label>
+            <input type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 text-[15px]" />
+          </div>
+          <button onClick={handleAdd} className="w-full py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2">
+            <PlusCircle className="w-5 h-5" /> 新增效期
+          </button>
+        </div>
+      </div>
+
+      {sortedExpiry.length > 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
+            <h4 className="font-bold text-slate-700 text-sm">目前追蹤中（{sortedExpiry.length} 項）</h4>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {sortedExpiry.map(e => (
+              <div key={e.id} className={`px-5 py-3 flex items-center justify-between ${e.daysLeft <= 0 ? 'bg-red-50' : e.daysLeft <= 3 ? 'bg-orange-50' : e.daysLeft <= 7 ? 'bg-yellow-50' : ''}`}>
+                <div>
+                  <div className="font-bold text-slate-800">{e.productName}</div>
+                  <div className="text-[12px] text-slate-500 mt-0.5">到期：{e.expiryDate}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`px-3 py-1 rounded-lg text-[13px] font-black ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800' : e.daysLeft <= 3 ? 'bg-orange-200 text-orange-800' : e.daysLeft <= 7 ? 'bg-yellow-200 text-yellow-800' : 'bg-green-100 text-green-700'}`}>
+                    {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
+                  </span>
+                  <button onClick={() => handleDelete(e.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-12 text-slate-400 font-bold">尚未新增任何效期追蹤</div>
+      )}
     </div>
   );
 }
