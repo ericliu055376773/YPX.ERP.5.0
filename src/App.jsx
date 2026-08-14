@@ -2183,17 +2183,20 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
 
         {/* 效期警示橫幅 - 固定浮動顯示 */}
         {expiryWarnings.length > 0 && (
-          <div className="sticky top-0 z-30 mb-4 bg-white/95 border-2 border-orange-200 rounded-2xl p-3 shadow-lg backdrop-blur-sm">
-            <h4 className="text-orange-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期追蹤</h4>
-            <div className="flex flex-wrap gap-2">
-              {expiryWarnings.map(e => (
-                <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : e.daysLeft <= 7 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                  {e.productName} — {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
-                </span>
-              ))}
+          <div className="fixed top-0 left-0 right-0 z-50 mx-auto max-w-4xl px-3 pt-2">
+            <div className="bg-white/95 border-2 border-orange-200 rounded-2xl p-3 shadow-lg backdrop-blur-sm">
+              <h4 className="text-orange-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期追蹤</h4>
+              <div className="flex flex-wrap gap-2">
+                {expiryWarnings.map(e => (
+                  <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : e.daysLeft <= 7 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                    {e.productName} — {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         )}
+        {expiryWarnings.length > 0 && <div className="h-20"></div>}
 
         {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
