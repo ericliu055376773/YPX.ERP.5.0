@@ -2128,7 +2128,7 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
       const exp = new Date(e.expiryDate); exp.setHours(0,0,0,0);
       const diff = Math.ceil((exp - today) / (1000 * 60 * 60 * 24));
       return { ...e, daysLeft: diff };
-    }).filter(e => e.daysLeft <= 7).sort((a, b) => a.daysLeft - b.daysLeft);
+    }).sort((a, b) => a.daysLeft - b.daysLeft);
   }, [branchExpiry]);
 
   const tabs = [
@@ -2183,11 +2183,11 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
 
         {/* 效期警示橫幅 - 固定浮動顯示 */}
         {expiryWarnings.length > 0 && (
-          <div className="sticky top-0 z-30 mb-4 bg-red-50 border-2 border-red-200 rounded-2xl p-3 shadow-lg backdrop-blur-sm">
-            <h4 className="text-red-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期提醒</h4>
+          <div className="sticky top-0 z-30 mb-4 bg-white/95 border-2 border-orange-200 rounded-2xl p-3 shadow-lg backdrop-blur-sm">
+            <h4 className="text-orange-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期追蹤</h4>
             <div className="flex flex-wrap gap-2">
               {expiryWarnings.map(e => (
-                <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-yellow-100 text-yellow-700 border-yellow-200'}`}>
+                <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : e.daysLeft <= 7 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
                   {e.productName} — {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
                 </span>
               ))}
@@ -2627,6 +2627,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
 function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUser, db, appId, systemOptions }) {
   const [selectedProduct, setSelectedProduct] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
+  const [editMode, setEditMode] = useState(false);
   const expiryProducts = systemOptions.expiryProducts || [];
 
   const today = new Date(); today.setHours(0,0,0,0);
@@ -2680,8 +2681,14 @@ function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUs
 
       {sortedExpiry.length > 0 ? (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
             <h4 className="font-bold text-slate-700 text-sm">目前追蹤中（{sortedExpiry.length} 項）</h4>
+            <button 
+              onClick={() => setEditMode(!editMode)} 
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1 ${editMode ? 'bg-red-100 text-red-600 border border-red-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}
+            >
+              <Edit2 className="w-3.5 h-3.5" /> {editMode ? '完成編輯' : '編輯'}
+            </button>
           </div>
           <div className="divide-y divide-slate-100">
             {sortedExpiry.map(e => (
@@ -2694,7 +2701,9 @@ function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUs
                   <span className={`px-3 py-1 rounded-lg text-[13px] font-black ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800' : e.daysLeft <= 3 ? 'bg-orange-200 text-orange-800' : e.daysLeft <= 7 ? 'bg-yellow-200 text-yellow-800' : 'bg-green-100 text-green-700'}`}>
                     {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
                   </span>
-                  <button onClick={() => handleDelete(e.id)} className="p-1.5 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                  {editMode && (
+                    <button onClick={() => { if(window.confirm(`確定刪除「${e.productName}」的效期紀錄？`)) handleDelete(e.id); }} className="p-1.5 text-red-400 hover:text-red-600 transition-colors bg-red-50 rounded-lg border border-red-200"><Trash2 className="w-4 h-4" /></button>
+                  )}
                 </div>
               </div>
             ))}
