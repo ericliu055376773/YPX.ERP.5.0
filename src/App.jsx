@@ -471,7 +471,7 @@ export default function App() {
 
           <main className="flex-1 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+90px)] md:pb-0 relative scroll-smooth w-full">
             {user.role === 'admin' ? (
-              <AdminViews products={products} usersDb={usersDb} inventoryData={inventoryData} ordersData={ordersData} getBranchInventory={getBranchInventory} showToast={showToast} fbUser={fbUser} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
+              <AdminViews products={products} usersDb={usersDb} inventoryData={inventoryData} ordersData={ordersData} expiryData={expiryData} getBranchInventory={getBranchInventory} showToast={showToast} fbUser={fbUser} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
             ) : (
               <LocationGuard user={user} systemConfig={systemConfig} logout={logout}>
                 <BranchViews user={user} fbUser={fbUser} products={products} inventoryData={inventoryData} ordersData={ordersData} expiryData={expiryData} branchInventory={getBranchInventory(user.branchName || user.username)} showToast={showToast} systemConfig={systemConfig} systemOptions={systemOptions} db={db} appId={appId} />
@@ -686,7 +686,7 @@ function StatusBadge({ status }) {
 // ==========================================
 // 總部後台視圖
 // ==========================================
-function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInventory, showToast, fbUser, systemConfig, systemOptions, db, appId }) {
+function AdminViews({ products, usersDb, inventoryData, ordersData, expiryData, getBranchInventory, showToast, fbUser, systemConfig, systemOptions, db, appId }) {
   const [activeTab, setActiveTab] = useState('products');
   const branches = usersDb.filter(u => u.role !== 'admin'); 
 
@@ -697,7 +697,8 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
     { id: 'inventory', icon: <ClipboardList />, label: '庫存管理' },
     { id: 'branches', icon: <Users />, label: '門店帳號' },
     { id: 'history', icon: <History />, label: '進貨紀錄' },
-    { id: 'analytics', icon: <BarChart2 />, label: '統計' }
+    { id: 'analytics', icon: <BarChart2 />, label: '統計' },
+    { id: 'expiryAdmin', icon: <Calendar />, label: '效期' }
   ];
 
   return (
@@ -717,6 +718,7 @@ function AdminViews({ products, usersDb, inventoryData, ordersData, getBranchInv
         {activeTab === 'branches' && <AdminBranchManager branches={branches} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'history' && <AdminOrderHistory ordersData={ordersData} branches={branches} showToast={showToast} />}
         {activeTab === 'analytics' && <AdminAnalytics ordersData={ordersData} branches={branches} products={products} systemConfig={systemConfig} />}
+        {activeTab === 'expiryAdmin' && <AdminExpiryProducts systemOptions={systemOptions} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
       </div>
       <BottomNav tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} themeColor="text-blue-600" />
     </>
@@ -2179,9 +2181,9 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
            ))}
         </div>
 
-        {/* 效期警示橫幅 - 所有頁面都顯示 */}
+        {/* 效期警示橫幅 - 固定浮動顯示 */}
         {expiryWarnings.length > 0 && (
-          <div className="mb-4 bg-red-50 border-2 border-red-200 rounded-2xl p-3 shadow-sm">
+          <div className="sticky top-0 z-30 mb-4 bg-red-50 border-2 border-red-200 rounded-2xl p-3 shadow-lg backdrop-blur-sm">
             <h4 className="text-red-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期提醒</h4>
             <div className="flex flex-wrap gap-2">
               {expiryWarnings.map(e => (
@@ -2195,10 +2197,62 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
 
         {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
-        {activeTab === 'expiry' && <BranchExpiryManager branchName={user.branchName} products={products} expiryData={branchExpiry} showToast={showToast} fbUser={fbUser} db={db} appId={appId} />}
+        {activeTab === 'expiry' && <BranchExpiryManager branchName={user.branchName} products={products} expiryData={branchExpiry} showToast={showToast} fbUser={fbUser} db={db} appId={appId} systemOptions={systemOptions} />}
       </div>
       <BottomNav tabs={tabs} activeTab={activeTab} setActiveTab={setActiveTab} themeColor={isManager ? 'text-orange-600' : 'text-green-600'} />
     </>
+  );
+}
+
+function AdminExpiryProducts({ systemOptions, showToast, fbUser, db, appId }) {
+  const [newItem, setNewItem] = useState('');
+  const expiryProducts = systemOptions.expiryProducts || [];
+
+  const handleAdd = async () => {
+    const name = newItem.trim();
+    if (!name) return;
+    if (expiryProducts.includes(name)) { showToast('此商品已存在', 'error'); return; }
+    const updated = [...expiryProducts, name];
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), { expiryProducts: updated }, { merge: true });
+    showToast(`已新增效期商品「${name}」`);
+    setNewItem('');
+  };
+
+  const handleDelete = async (name) => {
+    const updated = expiryProducts.filter(n => n !== name);
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_SYSTEM, 'options'), { expiryProducts: updated }, { merge: true });
+    showToast(`已刪除「${name}」`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 mb-4"><Calendar className="w-5 h-5 text-blue-600" /> 效期追蹤商品管理</h3>
+        <p className="text-sm text-slate-500 mb-4">在此新增需要追蹤效期的商品名稱，門店「效期」頁面的下拉選單會使用這些名稱。</p>
+        <div className="flex gap-2">
+          <input value={newItem} onChange={(e) => setNewItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder="輸入商品名稱..." className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 text-[15px]" />
+          <button onClick={handleAdd} className="px-5 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-sm whitespace-nowrap flex items-center gap-1.5"><PlusCircle className="w-4 h-4" /> 新增</button>
+        </div>
+      </div>
+
+      {expiryProducts.length > 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-200">
+            <h4 className="font-bold text-slate-700 text-sm">已建立的效期商品（{expiryProducts.length} 項）</h4>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {expiryProducts.map((name, i) => (
+              <div key={i} className="px-5 py-3 flex items-center justify-between">
+                <span className="font-bold text-slate-800 text-[16px]">{name}</span>
+                <button onClick={() => handleDelete(name)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="text-center py-12 text-slate-400 font-bold">尚未新增任何效期商品</div>
+      )}
+    </div>
   );
 }
 
@@ -2570,9 +2624,10 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   );
 }
 
-function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUser, db, appId }) {
+function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUser, db, appId, systemOptions }) {
   const [selectedProduct, setSelectedProduct] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
+  const expiryProducts = systemOptions.expiryProducts || [];
 
   const today = new Date(); today.setHours(0,0,0,0);
   const sortedExpiry = useMemo(() => {
@@ -2584,14 +2639,12 @@ function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUs
 
   const handleAdd = async () => {
     if (!selectedProduct || !expiryDate) { showToast('請選擇商品並輸入有效日期', 'error'); return; }
-    const product = products.find(p => p.id === selectedProduct);
-    if (!product) return;
     const id = `EXP-${branchName}-${Date.now()}`;
     await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_EXPIRY, id), {
-      id, branchName, productId: product.id, productName: product.name, category: product.category,
+      id, branchName, productName: selectedProduct,
       expiryDate, createdAt: Date.now()
     });
-    showToast(`已新增「${product.name}」效期追蹤`);
+    showToast(`已新增「${selectedProduct}」效期追蹤`);
     setSelectedProduct('');
     setExpiryDate('');
   };
@@ -2610,8 +2663,8 @@ function BranchExpiryManager({ branchName, products, expiryData, showToast, fbUs
             <label className="text-xs font-bold text-slate-500 mb-1 block">選擇商品</label>
             <select value={selectedProduct} onChange={(e) => setSelectedProduct(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500 text-[15px]">
               <option value="">請選擇商品...</option>
-              {products.filter(p => !p.suspended).map(p => (
-                <option key={p.id} value={p.id}>{formatCategory(p.category)} — {p.name}</option>
+              {expiryProducts.map((name, i) => (
+                <option key={i} value={name}>{name}</option>
               ))}
             </select>
           </div>
