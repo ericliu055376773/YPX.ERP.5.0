@@ -362,15 +362,16 @@ export default function App() {
         parLevel: regularPar,
         parLevelHoliday: holidayPar,
         activeParLevel: isHoliday ? holidayPar : regularPar,
-        unit: bSetting.stockUnit || product.unit,
+        unit: bSetting.branchUnit || bSetting.stockUnit || product.unit,
         defaultUnit: product.unit,
         reorderQty: (bSetting.reorderQty !== undefined && bSetting.reorderQty !== null) ? bSetting.reorderQty : (product.defaultReorderQty || 0),
         reorderUnit: (bSetting.reorderUnit !== undefined && bSetting.reorderUnit !== null) ? bSetting.reorderUnit : (product.defaultReorderUnit || ''),
         manualOrderQty: (bSetting.manualOrderQty !== undefined && bSetting.manualOrderQty !== null) ? bSetting.manualOrderQty : '',
         currentStockMajor: (bSetting.currentStockMajor !== undefined && bSetting.currentStockMajor !== null) ? bSetting.currentStockMajor : '',
-        unitMajor: product.unitMajor || '',
-        orderUnit: product.orderUnit || '',
-        safetyUnit: product.safetyUnit || ''
+        unitMajor: bSetting.branchUnitMajor !== undefined ? bSetting.branchUnitMajor : (product.unitMajor || ''),
+        orderUnit: bSetting.branchOrderUnit !== undefined ? bSetting.branchOrderUnit : (product.orderUnit || ''),
+        safetyUnit: bSetting.branchSafetyUnit !== undefined ? bSetting.branchSafetyUnit : (product.safetyUnit || ''),
+        tag: bSetting.branchTag !== undefined && bSetting.branchTag !== null ? bSetting.branchTag : (product.tag || ''),
       };
     });
   };
@@ -2390,6 +2391,9 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   const [searchTerm, setSearchTerm] = useState(''); 
   const [errorItemId, setErrorItemId] = useState(null);
   const [editingParId, setEditingParId] = useState(null);
+  const [editingTagId, setEditingTagId] = useState(null);
+  const [editingTagValue, setEditingTagValue] = useState('');
+  const [editingUnitId, setEditingUnitId] = useState(null);
   const [sortMode, setSortMode] = useState(false);
 
   // 門店自訂商品排序
@@ -2594,10 +2598,37 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                      {isSuspended && (
                         <span className="bg-red-100 text-red-600 border border-red-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black">停售</span>
                      )}
-                     {item.tag && (
-                        <span className="bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm">
+                     {editingTagId === item.id ? (
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            autoFocus
+                            value={editingTagValue}
+                            onChange={(e) => setEditingTagValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+                                setDoc(docRef, { settings: { [item.id]: { branchTag: editingTagValue.trim() } } }, { merge: true });
+                                showToast(editingTagValue.trim() ? `標籤已更新為「${editingTagValue.trim()}」` : '標籤已清除');
+                                setEditingTagId(null);
+                              }
+                            }}
+                            placeholder="輸入標籤..."
+                            className="px-2 py-0.5 bg-orange-50 border border-orange-300 rounded-lg text-[12px] font-bold text-orange-700 outline-none focus:ring-2 focus:ring-orange-400 w-32"
+                          />
+                          <button onClick={() => {
+                            const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+                            setDoc(docRef, { settings: { [item.id]: { branchTag: editingTagValue.trim() } } }, { merge: true });
+                            showToast(editingTagValue.trim() ? `標籤已更新` : '標籤已清除');
+                            setEditingTagId(null);
+                          }} className="text-[11px] text-green-600 font-black bg-green-50 px-1.5 py-0.5 rounded-lg border border-green-200">✓</button>
+                          <button onClick={() => setEditingTagId(null)} className="text-[11px] text-slate-400 font-bold px-1.5 py-0.5">✕</button>
+                        </div>
+                     ) : item.tag ? (
+                        <span onClick={(e) => { e.stopPropagation(); setEditingTagId(item.id); setEditingTagValue(item.tag); }} className="bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm cursor-pointer hover:bg-orange-200 transition-colors">
                           {item.tag}
                         </span>
+                     ) : (
+                        <button onClick={(e) => { e.stopPropagation(); setEditingTagId(item.id); setEditingTagValue(''); }} className="text-[10px] text-slate-300 hover:text-orange-500 transition-colors border border-dashed border-slate-200 hover:border-orange-300 px-2 py-0.5 rounded-lg">+ 標籤</button>
                      )}
                      {item.includeInUseQty && (
                         <span className="bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-lg text-[11px] font-black tracking-wider whitespace-nowrap shadow-sm">
@@ -2628,8 +2659,43 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                   </div>
                 )}
               </div>
+
+              {editingUnitId === item.id && (
+                <div className="mt-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black text-slate-500">單位設定</span>
+                    <button onClick={() => { setEditingUnitId(null); showToast('單位已更新'); }} className="text-[11px] text-green-600 font-black bg-green-50 px-2 py-0.5 rounded-lg border border-green-200">✓ 完成</button>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <div className="flex-1 min-w-[80px]">
+                      <label className="text-[9px] font-bold text-blue-500 block">盤點(小)</label>
+                      <select value={item.unit} onChange={(e) => { const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName); setDoc(docRef, { settings: { [item.id]: { branchUnit: e.target.value } } }, { merge: true }); }} className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-[12px] font-bold text-slate-700 outline-none">
+                        {(systemOptions.units || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}
+                        {!((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === item.unit)) && <option value={item.unit}>{item.unit}</option>}
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[80px]">
+                      <label className="text-[9px] font-bold text-blue-500 block">盤點(大)</label>
+                      <select value={item.unitMajor} onChange={(e) => { const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName); setDoc(docRef, { settings: { [item.id]: { branchUnitMajor: e.target.value } } }, { merge: true }); }} className="w-full px-1.5 py-1 bg-white border border-blue-200 rounded-lg text-[12px] font-bold text-blue-700 outline-none">
+                        <option value="">不使用</option>
+                        {(systemOptions.units || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[80px]">
+                      <label className="text-[9px] font-bold text-orange-500 block">叫貨單位</label>
+                      <select value={item.orderUnit || item.unit} onChange={(e) => { const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName); setDoc(docRef, { settings: { [item.id]: { branchOrderUnit: e.target.value } } }, { merge: true }); }} className="w-full px-1.5 py-1 bg-white border border-orange-200 rounded-lg text-[12px] font-bold text-orange-700 outline-none">
+                        {(systemOptions.units || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}
+                        {(systemOptions.reorderUnits || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={`r${i}`} value={n}>{n}</option>; })}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {!editingUnitId && !isSuspended && (
+                <button onClick={(e) => { e.stopPropagation(); setEditingUnitId(item.id); }} className="mt-1 text-[10px] text-slate-300 hover:text-blue-500 transition-colors flex items-center gap-0.5"><Settings className="w-3 h-3" />單位</button>
+              )}
               
-              <div className={`mt-4 space-y-2 ${isSuspended ? 'pointer-events-none opacity-30' : ''}`}>
+              <div className={`mt-2 space-y-2 ${isSuspended ? 'pointer-events-none opacity-30' : ''}`}>
                 {!systemConfig.hideStockInput && (
                 <div className={`flex gap-2`}>
                   <div className="flex items-center gap-0.5 shrink-0">
