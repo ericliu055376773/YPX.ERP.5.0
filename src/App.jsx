@@ -2131,6 +2131,8 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
     }).sort((a, b) => a.daysLeft - b.daysLeft);
   }, [branchExpiry]);
 
+  const [expiryBannerOpen, setExpiryBannerOpen] = useState(false);
+
   const tabs = [
     { id: 'inventory', icon: <ClipboardList />, label: '盤點' },
     ...(isManager ? [{ id: 'orders', icon: <ShoppingCart />, label: '叫貨' }] : []),
@@ -2161,6 +2163,15 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
     await setDoc(docRef, { settings: { [productId]: { currentStockMajor: valueToSave } } }, { merge: true });
   };
 
+  const updateBranchParLevel = async (productId, type, value) => {
+    if(!fbUser) return;
+    const val = value === '' ? null : parseFloat(value);
+    if (val !== null && isNaN(val)) return;
+    const field = type === 'holiday' ? 'parLevelHoliday' : 'parLevel';
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+    await setDoc(docRef, { settings: { [productId]: { [field]: val } } }, { merge: true });
+  };
+
   const addOrderCloud = async (newOrderData) => {
     if(!fbUser) return;
     const orderDoc = { ...newOrderData, branchUsername: user.username, branchName: user.branchName, timestamp: Date.now() };
@@ -2181,24 +2192,33 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
            ))}
         </div>
 
-        {/* 效期警示橫幅 - 固定浮動顯示 */}
+        {/* 效期警示橫幅 - 固定浮動顯示，可收折 */}
         {expiryWarnings.length > 0 && (
           <div className="fixed top-0 left-0 right-0 z-50 mx-auto max-w-4xl px-3 pt-2">
             <div className="bg-white/95 border-2 border-orange-200 rounded-2xl p-3 shadow-lg backdrop-blur-sm">
-              <h4 className="text-orange-700 font-black text-sm flex items-center gap-1.5 mb-2"><AlertTriangle className="w-4 h-4" /> 效期追蹤</h4>
-              <div className="flex flex-wrap gap-2">
-                {expiryWarnings.map(e => (
-                  <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : e.daysLeft <= 7 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
-                    {e.productName} — {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
-                  </span>
-                ))}
+              <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpiryBannerOpen(!expiryBannerOpen)}>
+                <h4 className="text-orange-700 font-black text-sm flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4" /> 效期追蹤
+                  <span className="text-[11px] font-bold text-orange-500 bg-orange-100 px-2 py-0.5 rounded-full">{expiryWarnings.length} 項</span>
+                  {expiryWarnings.some(e => e.daysLeft <= 3) && <span className="text-[11px] font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full animate-pulse">⚠ 緊急</span>}
+                </h4>
+                <ChevronDown className={`w-5 h-5 text-orange-400 transition-transform ${expiryBannerOpen ? 'rotate-180' : ''}`} />
               </div>
+              {expiryBannerOpen && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {expiryWarnings.map(e => (
+                    <span key={e.id} className={`px-3 py-1 rounded-lg text-[12px] font-bold border ${e.daysLeft <= 0 ? 'bg-red-200 text-red-800 border-red-300' : e.daysLeft <= 3 ? 'bg-orange-100 text-orange-700 border-orange-200' : e.daysLeft <= 7 ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-700 border-green-200'}`}>
+                      {e.productName} — {e.daysLeft <= 0 ? '已過期' : `剩 ${e.daysLeft} 天`}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
-        {expiryWarnings.length > 0 && <div className="h-20"></div>}
+        {expiryWarnings.length > 0 && <div className={expiryBannerOpen ? 'h-24' : 'h-12'}></div>}
 
-        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
+        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} updateBranchParLevel={updateBranchParLevel} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
         {activeTab === 'expiry' && <BranchExpiryManager branchName={user.branchName} products={products} expiryData={branchExpiry} showToast={showToast} fbUser={fbUser} db={db} appId={appId} systemOptions={systemOptions} />}
       </div>
@@ -2382,10 +2402,11 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
   );
 }
 
-function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateStockMajorCloud, updateOrderQtyCloud, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
+function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateStockMajorCloud, updateOrderQtyCloud, updateBranchParLevel, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
   const [activeCategory, setActiveCategory] = useState('');
   const [searchTerm, setSearchTerm] = useState(''); 
-  const [errorItemId, setErrorItemId] = useState(null); 
+  const [errorItemId, setErrorItemId] = useState(null);
+  const [editingParId, setEditingParId] = useState(null); 
 
   const globalHidden = systemConfig.globalHiddenCategories || [];
 
@@ -2554,7 +2575,20 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                      )}
                   </div>
                   <div className="text-[13px] font-bold text-slate-500">
-                    安全庫存: <span className="text-blue-600 text-[15px]">{item.activeParLevel}</span> {item.safetyUnit || item.unit}
+                    {editingParId === item.id ? (
+                      <div className="flex items-center gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+                        <span className="text-[11px] text-blue-500">平日</span>
+                        <NumberInput min="0" step="0.5" value={item.parLevel} onChange={(val) => updateBranchParLevel(item.id, 'regular', val)} className="w-12 px-1 py-0.5 border border-blue-300 rounded-lg text-center text-[14px] font-black text-blue-600 outline-none bg-blue-50" />
+                        <span className="text-[11px] text-orange-500">假日</span>
+                        <NumberInput min="0" step="0.5" value={item.parLevelHoliday} onChange={(val) => updateBranchParLevel(item.id, 'holiday', val)} className="w-12 px-1 py-0.5 border border-orange-300 rounded-lg text-center text-[14px] font-black text-orange-600 outline-none bg-orange-50" />
+                        <span className="text-[11px] text-slate-400">{item.safetyUnit || item.unit}</span>
+                        <button onClick={() => { setEditingParId(null); showToast('安全庫存已更新'); }} className="text-[11px] text-green-600 font-black bg-green-50 px-2 py-0.5 rounded-lg border border-green-200">✓</button>
+                      </div>
+                    ) : (
+                      <span onClick={(e) => { e.stopPropagation(); setEditingParId(item.id); }} className="cursor-pointer hover:text-blue-600 transition-colors">
+                        安全庫存: <span className="text-blue-600 text-[15px]">{item.activeParLevel}</span> {item.safetyUnit || item.unit} <Edit2 className="w-3 h-3 inline ml-1 text-slate-300" />
+                      </span>
+                    )}
                   </div>
                 </div>
                 {isDeficient && (
