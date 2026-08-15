@@ -2218,7 +2218,7 @@ function BranchViews({ user, fbUser, products, inventoryData, ordersData, expiry
         )}
         {expiryWarnings.length > 0 && <div className={expiryBannerOpen ? 'h-24' : 'h-12'}></div>}
 
-        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} updateBranchParLevel={updateBranchParLevel} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} />}
+        {activeTab === 'inventory' && <BranchInventoryCheck inventory={branchInventory} hiddenCategories={hiddenCategories} updateStockCloud={updateStockCloud} updateStockMajorCloud={updateStockMajorCloud} updateOrderQtyCloud={updateOrderQtyCloud} updateBranchParLevel={updateBranchParLevel} addOrderCloud={addOrderCloud} showToast={showToast} systemConfig={systemConfig} products={products} systemOptions={systemOptions} isManager={isManager} branchAnnouncement={branchAnnouncement} inventoryData={inventoryData} user={user} fbUser={fbUser} db={db} appId={appId} />}
         {activeTab === 'orders' && isManager && <BranchOrderManagement purchaseOrders={branchOrders} showToast={showToast} />}
         {activeTab === 'expiry' && <BranchExpiryManager branchName={user.branchName} products={products} expiryData={branchExpiry} showToast={showToast} fbUser={fbUser} db={db} appId={appId} systemOptions={systemOptions} />}
       </div>
@@ -2402,7 +2402,7 @@ function AdminInventoryLog({ inventoryData, branches, products, systemConfig, sy
   );
 }
 
-function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateStockMajorCloud, updateOrderQtyCloud, updateBranchParLevel, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement }) {
+function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, updateStockMajorCloud, updateOrderQtyCloud, updateBranchParLevel, addOrderCloud, showToast, systemConfig, products, systemOptions, isManager, branchAnnouncement, inventoryData, user, fbUser, db, appId }) {
   const [activeCategory, setActiveCategory] = useState('');
   const [searchTerm, setSearchTerm] = useState(''); 
   const [errorItemId, setErrorItemId] = useState(null);
@@ -2461,10 +2461,16 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
     showToast(`已成功產生「${formatCategory(activeCategory)}」叫貨單！`);
   };
 
-  const effectiveIsHoliday = getEffectiveHolidayMode(systemConfig.holidayMode);
-  let modeText = systemConfig.holidayMode === 'auto' 
-    ? (effectiveIsHoliday ? '自動偵測 (明日為假日)' : '自動偵測 (明日為平日)')
-    : (effectiveIsHoliday ? '總部設定 (假日)' : '總部設定 (平日)');
+  // 門店可自行覆蓋假日模式
+  const branchHolidayMode = inventoryData[user?.branchName]?.branchHolidayMode || 'auto';
+  const systemIsHoliday = getEffectiveHolidayMode(systemConfig.holidayMode);
+  const effectiveIsHoliday = branchHolidayMode === 'holiday' ? true : branchHolidayMode === 'weekday' ? false : systemIsHoliday;
+  
+  let modeText = branchHolidayMode === 'auto' 
+    ? (systemConfig.holidayMode === 'auto' 
+      ? (systemIsHoliday ? '自動偵測 (明日為假日)' : '自動偵測 (明日為平日)') 
+      : (systemIsHoliday ? '總部設定 (假日)' : '總部設定 (平日)'))
+    : (branchHolidayMode === 'holiday' ? '門店手動切換' : '門店手動切換');
 
   return (
     <div className="space-y-4">
@@ -2482,10 +2488,15 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
         </div>
       )}
 
-      <div className={`px-4 py-3.5 rounded-[1.5rem] flex items-center justify-between shadow-sm ${effectiveIsHoliday ? 'bg-orange-100 border-2 border-orange-200' : 'bg-blue-50 border-2 border-blue-200'}`}>
+      <div className={`px-4 py-3.5 rounded-[1.5rem] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm ${effectiveIsHoliday ? 'bg-orange-100 border-2 border-orange-200' : 'bg-blue-50 border-2 border-blue-200'}`}>
          <div className={`flex flex-col font-bold ${effectiveIsHoliday ? 'text-orange-800' : 'text-blue-800'}`}>
            <div className="flex items-center gap-2 text-[15px]"><Calendar className="w-5 h-5 flex-shrink-0" />目前適用：{effectiveIsHoliday ? '假日安全庫存' : '平日安全庫存'}</div>
            <div className={`text-[12px] mt-0.5 ml-7 opacity-80`}>{modeText}</div>
+         </div>
+         <div className="flex bg-white/80 rounded-xl p-1 shadow-inner border border-slate-200/50">
+           <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName), { branchHolidayMode: 'auto' }, { merge: true }); showToast('已切換為自動偵測'); }} className={`px-3 py-1.5 rounded-lg font-bold text-[12px] transition-all ${branchHolidayMode === 'auto' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>自動</button>
+           <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName), { branchHolidayMode: 'weekday' }, { merge: true }); showToast('已切換為平日模式'); }} className={`px-3 py-1.5 rounded-lg font-bold text-[12px] transition-all ${branchHolidayMode === 'weekday' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>平日</button>
+           <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName), { branchHolidayMode: 'holiday' }, { merge: true }); showToast('已切換為假日模式'); }} className={`px-3 py-1.5 rounded-lg font-bold text-[12px] transition-all ${branchHolidayMode === 'holiday' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'}`}>假日</button>
          </div>
       </div>
       
