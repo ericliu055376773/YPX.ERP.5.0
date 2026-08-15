@@ -7,7 +7,7 @@ import {
   BarChart2, Search, ChevronDown, ChevronUp, Download, Menu,
   Edit2, Trash2, Save, Eye, EyeOff, ScanLine, MapPin, MapPinOff, ShieldCheck, X, Bell,
   Camera, MessageSquare, AlertTriangle, Copy
-} from 'lucide-react';x
+} from 'lucide-react';
 
 // --- Firebase Imports ---
 import { initializeApp } from 'firebase/app';
