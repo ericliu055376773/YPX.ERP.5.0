@@ -2488,17 +2488,6 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
         </div>
       )}
 
-      <div className={`px-4 py-3.5 rounded-[1.5rem] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm ${effectiveIsHoliday ? 'bg-orange-100 border-2 border-orange-200' : 'bg-blue-50 border-2 border-blue-200'}`}>
-         <div className={`flex flex-col font-bold ${effectiveIsHoliday ? 'text-orange-800' : 'text-blue-800'}`}>
-           <div className="flex items-center gap-2 text-[15px]"><Calendar className="w-5 h-5 flex-shrink-0" />目前適用：{effectiveIsHoliday ? '假日安全庫存' : '平日安全庫存'}</div>
-           <div className={`text-[12px] mt-0.5 ml-7 opacity-80`}>{modeText}</div>
-         </div>
-         <div className="flex bg-white/80 rounded-xl p-1 shadow-inner border border-slate-200/50">
-           <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName), { branchHolidayMode: 'auto' }, { merge: true }); showToast('已切換為自動偵測'); }} className={`px-3 py-1.5 rounded-lg font-bold text-[12px] transition-all ${branchHolidayMode === 'auto' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>自動</button>
-           <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName), { branchHolidayMode: 'weekday' }, { merge: true }); showToast('已切換為平日模式'); }} className={`px-3 py-1.5 rounded-lg font-bold text-[12px] transition-all ${branchHolidayMode === 'weekday' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>平日</button>
-           <button onClick={async () => { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName), { branchHolidayMode: 'holiday' }, { merge: true }); showToast('已切換為假日模式'); }} className={`px-3 py-1.5 rounded-lg font-bold text-[12px] transition-all ${branchHolidayMode === 'holiday' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500'}`}>假日</button>
-         </div>
-      </div>
       
       <div className="flex justify-between items-center sticky top-[60px] md:top-0 z-10 bg-slate-50/95 backdrop-blur-md pt-2 pb-4 border-b border-slate-200/50">
         <h2 className="text-[24px] font-black text-slate-800 tracking-wide">每日盤點</h2>
@@ -2597,7 +2586,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                       </div>
                     ) : (
                       <span onClick={(e) => { e.stopPropagation(); setEditingParId(item.id); }} className="cursor-pointer hover:text-blue-600 transition-colors">
-                        安全庫存: <span className="text-blue-600 text-[15px]">{item.activeParLevel}</span> {item.safetyUnit || item.unit} <Edit2 className="w-3 h-3 inline ml-1 text-slate-300" />
+                        平日: <span className="text-blue-600">{item.parLevel}</span> 假日: <span className="text-orange-600">{item.parLevelHoliday}</span> {item.safetyUnit || item.unit} <Edit2 className="w-3 h-3 inline ml-1 text-slate-300" />
                       </span>
                     )}
                   </div>
