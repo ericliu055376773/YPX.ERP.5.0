@@ -1080,24 +1080,7 @@ function AdminProductManager({ products, showToast, fbUser, systemOptions, syste
       includeInUseQty: formData.get('includeInUseQty') === 'on'
     });
 
-    // 同步安全庫存與叫貨設定到所有分店
-    const newReorderQty = editReorderMode === 'fixed' ? (parseFloat(formData.get('defaultReorderQty')) || 0) : 0;
-    const newReorderUnit = editReorderMode === 'fixed' ? (formData.get('defaultReorderUnit') || '') : '';
-    const newUnit = formData.get('unit').trim();
-    const syncPromises = Object.keys(inventoryData).filter(bId => bId !== 'settings' && bId !== 'options').map(branchId => {
-      const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, branchId);
-      const syncData = { 
-        parLevel: newPar, 
-        parLevelHoliday: newParHoliday,
-        reorderQty: newReorderQty,
-        reorderUnit: newReorderUnit,
-        stockUnit: newUnit
-      };
-      return setDoc(docRef, { settings: { [editingProduct.id]: syncData } }, { merge: true });
-    });
-    await Promise.all(syncPromises);
-
-    showToast(`商品已更新：${newName}（安全庫存與叫貨設定已同步至所有門店）`);
+    showToast(`商品已更新：${newName}`);
     setEditingProduct(null);
   };
 
@@ -2406,7 +2389,41 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   const [activeCategory, setActiveCategory] = useState('');
   const [searchTerm, setSearchTerm] = useState(''); 
   const [errorItemId, setErrorItemId] = useState(null);
-  const [editingParId, setEditingParId] = useState(null); 
+  const [editingParId, setEditingParId] = useState(null);
+  const [sortMode, setSortMode] = useState(false);
+
+  // 門店自訂商品排序
+  const branchProductOrder = inventoryData[user?.branchName]?.productOrder || {};
+  const getOrderedItems = (items) => {
+    const catOrder = branchProductOrder[activeCategory] || [];
+    if (catOrder.length === 0) return items;
+    return [...items].sort((a, b) => {
+      const idxA = catOrder.indexOf(a.id);
+      const idxB = catOrder.indexOf(b.id);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+  };
+
+  const moveProduct = async (productId, direction) => {
+    const catItems = visibleInventory.filter(i => i.category === activeCategory);
+    const currentOrder = branchProductOrder[activeCategory] || catItems.map(i => i.id);
+    const orderedIds = catItems.map(i => {
+      const idx = currentOrder.indexOf(i.id);
+      return { id: i.id, idx: idx === -1 ? 9999 : idx };
+    }).sort((a, b) => a.idx - b.idx).map(x => x.id);
+    
+    const idx = orderedIds.indexOf(productId);
+    if (idx === -1) return;
+    const targetIdx = idx + direction;
+    if (targetIdx < 0 || targetIdx >= orderedIds.length) return;
+    [orderedIds[idx], orderedIds[targetIdx]] = [orderedIds[targetIdx], orderedIds[idx]];
+    
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+    await setDoc(docRef, { productOrder: { [activeCategory]: orderedIds } }, { merge: true });
+  }; 
 
   const globalHidden = systemConfig.globalHiddenCategories || [];
 
@@ -2541,9 +2558,17 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
           <Search className="w-4 h-4"/> 顯示「{searchTerm}」的結果 (點擊切換分類)
         </div>
       )}
+
+      {!searchTerm && (
+        <div className="flex justify-end mb-2">
+          <button onClick={() => setSortMode(!sortMode)} className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1 ${sortMode ? 'bg-blue-100 text-blue-600 border border-blue-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
+            <Menu className="w-3.5 h-3.5" /> {sortMode ? '完成排序' : '排序'}
+          </button>
+        </div>
+      )}
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
-        {visibleInventory.filter(i => searchTerm ? i.name.toLowerCase().includes(searchTerm.toLowerCase()) : i.category === activeCategory).map(item => {
+        {(searchTerm ? visibleInventory.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())) : getOrderedItems(visibleInventory.filter(i => i.category === activeCategory))).map((item, itemIndex, arr) => {
           const stockNum = parseFloat(item.currentStock) || 0;
           const isDeficient = stockNum < item.activeParLevel && item.currentStock !== ''; 
           const hasOrder = parseFloat(item.manualOrderQty) > 0;
@@ -2555,6 +2580,12 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
               onClick={() => setActiveCategory(item.category)}
               className={`p-5 rounded-[1.8rem] border-2 transition-colors relative shadow-sm cursor-pointer ${isSuspended ? 'bg-slate-100 border-slate-200 opacity-60' : errorItemId === item.id ? 'ring-4 ring-red-500 border-red-500 bg-red-50 animate-shake z-10' : isDeficient ? 'bg-[#fffbf0] border-orange-200' : 'bg-white border-slate-100'} ${searchTerm && activeCategory === item.category ? 'ring-2 ring-orange-400 border-orange-400' : ''}`}
             >
+              {sortMode && !searchTerm && (
+                <div className="flex gap-1 mb-2">
+                  <button onClick={(e) => { e.stopPropagation(); moveProduct(item.id, -1); }} disabled={itemIndex === 0} className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5 ${itemIndex === 0 ? 'text-slate-200' : 'text-blue-500 bg-blue-50 border border-blue-200 active:scale-95'}`}><ChevronUp className="w-3.5 h-3.5" />上移</button>
+                  <button onClick={(e) => { e.stopPropagation(); moveProduct(item.id, 1); }} disabled={itemIndex === arr.length - 1} className={`px-2 py-1 rounded-lg text-[11px] font-bold flex items-center gap-0.5 ${itemIndex === arr.length - 1 ? 'text-slate-200' : 'text-blue-500 bg-blue-50 border border-blue-200 active:scale-95'}`}><ChevronDown className="w-3.5 h-3.5" />下移</button>
+                </div>
+              )}
               <div className="flex justify-between items-start mb-2">
                 <div>
                   {searchTerm && <span className="text-[11px] font-bold text-slate-400 block mb-0.5">{formatCategory(item.category)}</span>}
