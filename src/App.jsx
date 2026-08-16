@@ -2682,7 +2682,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                       </div>
                     ) : (
                       <span onClick={(e) => { e.stopPropagation(); setEditingParId(item.id); }} className="cursor-pointer hover:text-blue-600 transition-colors">
-                        平日: <span className="text-blue-600">{item.parLevel}</span> 假日: <span className="text-orange-600">{item.parLevelHoliday}</span> {item.safetyUnit || item.unit} <Edit2 className="w-3 h-3 inline ml-1 text-slate-300" />
+                        平日: <span className="text-blue-600">{item.parLevel}</span> <span className="text-slate-400 text-[11px]">{item.unit}</span> 假日: <span className="text-orange-600">{item.parLevelHoliday}</span> <span className="text-slate-400 text-[11px]">{item.unitMajor || item.unit}</span> <Edit2 className="w-3 h-3 inline ml-1 text-slate-300" />
                       </span>
                     )}
                   </div>
