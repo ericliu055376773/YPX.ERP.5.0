@@ -1725,11 +1725,11 @@ function AdminQuotaManager({ branches, getBranchInventory, fbUser, showToast, sy
           <p className="text-xs text-slate-500 font-medium mb-3">此公告將顯示在該門店人員的「每日盤點」畫面最頂端。</p>
           <div className="flex flex-col gap-3">
             <textarea 
-              rows="5"
+              rows="8"
               value={announcementInput} 
               onChange={(e) => setAnnouncementInput(e.target.value)} 
               placeholder={`輸入要顯示給 ${selectedBranch} 的公告內容...\n(支援多行輸入，請使用「空白鍵」來對齊文字)`}
-              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[14px] font-bold text-slate-700 shadow-inner font-mono whitespace-pre resize-y"
+              className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none text-[14px] font-bold text-slate-700 shadow-inner font-mono whitespace-pre resize-y min-h-[200px]"
             />
             <button 
               onClick={saveAnnouncement} 
@@ -2394,6 +2394,8 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   const [editingTagId, setEditingTagId] = useState(null);
   const [editingTagValue, setEditingTagValue] = useState('');
   const [editingUnitId, setEditingUnitId] = useState(null);
+  const [editingBranchNote, setEditingBranchNote] = useState(false);
+  const [branchNoteValue, setBranchNoteValue] = useState('');
   const [sortMode, setSortMode] = useState(false);
 
   // 門店自訂商品排序
@@ -2508,6 +2510,38 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
           </div>
         </div>
       )}
+
+      {/* 門店自訂佈告欄（紫色） */}
+      <div className="bg-purple-50 border-2 border-purple-200 rounded-[1.5rem] p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-purple-800 font-bold text-sm flex items-center gap-2"><MessageSquare className="w-4 h-4" /> 門店佈告欄</h4>
+          {editingBranchNote ? (
+            <button onClick={async () => {
+              const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+              await setDoc(docRef, { branchNote: branchNoteValue }, { merge: true });
+              setEditingBranchNote(false);
+              showToast('佈告欄已更新');
+            }} className="text-[11px] text-green-600 font-black bg-green-50 px-3 py-1 rounded-lg border border-green-200">✓ 儲存</button>
+          ) : (
+            <button onClick={() => { setBranchNoteValue(inventoryData[user?.branchName]?.branchNote || ''); setEditingBranchNote(true); }} className="text-[11px] text-purple-500 font-bold bg-purple-100 px-3 py-1 rounded-lg border border-purple-200"><Edit2 className="w-3 h-3 inline mr-1" />編輯</button>
+          )}
+        </div>
+        {editingBranchNote ? (
+          <textarea 
+            value={branchNoteValue} 
+            onChange={(e) => setBranchNoteValue(e.target.value)}
+            rows={4}
+            placeholder="輸入門店公告、備忘錄..."
+            className="w-full px-3 py-2 bg-white border border-purple-200 rounded-xl text-[14px] font-bold text-purple-800 outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+          />
+        ) : (
+          <div className="bg-white/60 rounded-xl p-3 border border-purple-100/50 min-h-[40px]">
+            <pre className="text-purple-800 font-bold font-mono text-[14px] whitespace-pre-wrap leading-relaxed">
+              {inventoryData[user?.branchName]?.branchNote || '（點擊右上角「編輯」新增內容）'}
+            </pre>
+          </div>
+        )}
+      </div>
 
       
       <div className="flex justify-between items-center sticky top-[60px] md:top-0 z-10 bg-slate-50/95 backdrop-blur-md pt-2 pb-4 border-b border-slate-200/50">
@@ -2668,17 +2702,17 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     <div className="flex-1 min-w-[80px]">
-                      <label className="text-[9px] font-bold text-blue-500 block">盤點(小)</label>
+                      <label className="text-[9px] font-bold text-blue-500 block">平日單位</label>
                       <select value={item.unit} onChange={(e) => { const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName); setDoc(docRef, { settings: { [item.id]: { branchUnit: e.target.value } } }, { merge: true }); }} className="w-full px-1.5 py-1 bg-white border border-slate-200 rounded-lg text-[12px] font-bold text-slate-700 outline-none">
                         {(systemOptions.units || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}
                         {!((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === item.unit)) && <option value={item.unit}>{item.unit}</option>}
                       </select>
                     </div>
                     <div className="flex-1 min-w-[80px]">
-                      <label className="text-[9px] font-bold text-blue-500 block">盤點(大)</label>
-                      <select value={item.unitMajor} onChange={(e) => { const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName); setDoc(docRef, { settings: { [item.id]: { branchUnitMajor: e.target.value } } }, { merge: true }); }} className="w-full px-1.5 py-1 bg-white border border-blue-200 rounded-lg text-[12px] font-bold text-blue-700 outline-none">
-                        <option value="">不使用</option>
+                      <label className="text-[9px] font-bold text-orange-500 block">假日單位</label>
+                      <select value={item.unitMajor || item.unit} onChange={(e) => { const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName); setDoc(docRef, { settings: { [item.id]: { branchUnitMajor: e.target.value } } }, { merge: true }); }} className="w-full px-1.5 py-1 bg-white border border-orange-200 rounded-lg text-[12px] font-bold text-orange-700 outline-none">
                         {(systemOptions.units || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}
+                        {item.unitMajor && !((systemOptions.units || []).some(u => (typeof u === 'string' ? u : u.name) === item.unitMajor)) && <option value={item.unitMajor}>{item.unitMajor}</option>}
                       </select>
                     </div>
                     <div className="flex-1 min-w-[80px]">
@@ -2701,18 +2735,6 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                   <div className="flex items-center gap-0.5 shrink-0">
                     <span className="text-[10px] font-black text-blue-400 writing-vertical">庫存</span>
                   </div>
-                  {item.unitMajor && (
-                    <div className={`flex-1 bg-white border rounded-xl flex items-center p-1.5 shadow-inner transition-all border-blue-200 focus-within:ring-2 focus-within:ring-blue-400`}>
-                      <NumberInput
-                        min="0" step="1"
-                        value={item.currentStockMajor}
-                        onChange={(val) => { updateStockMajorCloud(item.id, val); setActiveCategory(item.category); }}
-                        className="w-full h-[38px] bg-transparent text-center text-[22px] font-black text-blue-600 outline-none placeholder-slate-300"
-                        placeholder="0"
-                      />
-                      <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{item.unitMajor}</span>
-                    </div>
-                  )}
                   <div className={`flex-1 bg-white border rounded-xl flex items-center p-1.5 shadow-inner transition-all ${errorItemId === item.id ? 'border-red-400 ring-2 ring-red-100' : 'border-blue-200 focus-within:ring-2 focus-within:ring-blue-400'}`}>
                     <NumberInput
                       min="0" step="0.5"
@@ -2721,7 +2743,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
                       className="w-full h-[38px] bg-transparent text-center text-[22px] font-black text-blue-600 outline-none placeholder-slate-300"
                       placeholder="0"
                     />
-                    <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{item.unit}</span>
+                    <span className="text-[12px] font-bold text-slate-400 pr-1 shrink-0">{effectiveIsHoliday && item.unitMajor ? item.unitMajor : item.unit}</span>
                   </div>
                 </div>
                 )}
