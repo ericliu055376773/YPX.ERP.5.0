@@ -2396,10 +2396,31 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   const [editingUnitId, setEditingUnitId] = useState(null);
   const [editingBranchNote, setEditingBranchNote] = useState(false);
   const [branchNoteValue, setBranchNoteValue] = useState('');
+  const [showCatMessage, setShowCatMessage] = useState(true);
+  const [editingCatMessage, setEditingCatMessage] = useState(false);
+  const [catMessageValue, setCatMessageValue] = useState('');
   const [sortMode, setSortMode] = useState(false);
 
   // 門店自訂商品排序
   const branchProductOrder = inventoryData[user?.branchName]?.productOrder || {};
+  const branchCatMessages = inventoryData[user?.branchName]?.catMessages || {};
+  
+  const switchCategory = (cat) => {
+    setActiveCategory(cat);
+    const msg = branchCatMessages[cat];
+    if (msg) {
+      setShowCatMessage(true);
+    } else {
+      setShowCatMessage(false);
+    }
+  };
+
+  const saveCatMessage = async () => {
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', DB_INVENTORY, user.branchName);
+    await setDoc(docRef, { catMessages: { [activeCategory]: catMessageValue.trim() } }, { merge: true });
+    setEditingCatMessage(false);
+    showToast('訊息卡片已更新');
+  };
   const getOrderedItems = (items) => {
     const catOrder = branchProductOrder[activeCategory] || [];
     if (catOrder.length === 0) return items;
@@ -2566,7 +2587,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
         </button>
         <div id="branch-cat-scroll" className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide snap-x flex-1">
           {categories.map(cat => (
-            <button key={cat} onClick={() => setActiveCategory(cat)} className={`snap-start px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm border text-[16px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+            <button key={cat} onClick={() => switchCategory(cat)} className={`snap-start px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm border text-[16px] ${activeCategory === cat ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
               {formatCategory(cat)}
             </button>
           ))}
@@ -2598,10 +2619,53 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
       )}
 
       {!searchTerm && (
-        <div className="flex justify-end mb-2">
+        <div className="flex justify-between items-center mb-2">
+          <button 
+            onClick={() => { setCatMessageValue(branchCatMessages[activeCategory] || ''); setEditingCatMessage(true); }}
+            className="text-[11px] text-purple-500 font-bold bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200 flex items-center gap-1 hover:bg-purple-100 transition-colors"
+          >
+            <MessageSquare className="w-3.5 h-3.5" /> 訊息卡片
+          </button>
           <button onClick={() => setSortMode(!sortMode)} className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1 ${sortMode ? 'bg-blue-100 text-blue-600 border border-blue-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
             <Menu className="w-3.5 h-3.5" /> {sortMode ? '完成排序' : '排序'}
           </button>
+        </div>
+      )}
+
+      {/* 分類訊息卡片彈窗 */}
+      {showCatMessage && branchCatMessages[activeCategory] && !editingCatMessage && (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-6 backdrop-blur-sm" onClick={() => setShowCatMessage(false)}>
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border-2 border-purple-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-purple-700 font-black text-[16px] flex items-center gap-2"><MessageSquare className="w-5 h-5" /> {formatCategory(activeCategory)}</h3>
+              <button onClick={() => setShowCatMessage(false)} className="p-1 text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="bg-purple-50 rounded-2xl p-4 border border-purple-100">
+              <pre className="text-purple-800 font-bold text-[15px] whitespace-pre-wrap leading-relaxed">{branchCatMessages[activeCategory]}</pre>
+            </div>
+            <button onClick={() => setShowCatMessage(false)} className="w-full mt-4 py-2.5 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-colors">確認</button>
+          </div>
+        </div>
+      )}
+
+      {/* 編輯訊息卡片彈窗 */}
+      {editingCatMessage && (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-6 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border-2 border-purple-200">
+            <h3 className="text-purple-700 font-black text-[16px] flex items-center gap-2 mb-3"><Edit2 className="w-5 h-5" /> 編輯「{formatCategory(activeCategory)}」訊息</h3>
+            <textarea 
+              value={catMessageValue}
+              onChange={(e) => setCatMessageValue(e.target.value)}
+              rows={5}
+              placeholder="輸入切換到此分類時要顯示的訊息..."
+              className="w-full px-4 py-3 bg-purple-50 border border-purple-200 rounded-xl text-[15px] font-bold text-purple-800 outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+            />
+            <p className="text-[11px] text-slate-400 mt-1 mb-3">清空內容可移除訊息卡片</p>
+            <div className="flex gap-2">
+              <button onClick={() => setEditingCatMessage(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl">取消</button>
+              <button onClick={saveCatMessage} className="flex-1 py-2.5 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-colors">儲存</button>
+            </div>
+          </div>
         </div>
       )}
       
