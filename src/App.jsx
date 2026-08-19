@@ -2400,6 +2400,7 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
   const [editingCatMessage, setEditingCatMessage] = useState(false);
   const [catMessageValue, setCatMessageValue] = useState('');
   const [sortMode, setSortMode] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
 
   // 門店自訂商品排序
   const branchProductOrder = inventoryData[user?.branchName]?.productOrder || {};
@@ -2620,15 +2621,74 @@ function BranchInventoryCheck({ inventory, hiddenCategories, updateStockCloud, u
 
       {!searchTerm && (
         <div className="flex justify-between items-center mb-2">
-          <button 
-            onClick={() => { setCatMessageValue(branchCatMessages[activeCategory] || ''); setEditingCatMessage(true); }}
-            className="text-[11px] text-purple-500 font-bold bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200 flex items-center gap-1 hover:bg-purple-100 transition-colors"
-          >
-            <MessageSquare className="w-3.5 h-3.5" /> 訊息卡片
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => { setCatMessageValue(branchCatMessages[activeCategory] || ''); setEditingCatMessage(true); }}
+              className="text-[11px] text-purple-500 font-bold bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-200 flex items-center gap-1 hover:bg-purple-100 transition-colors"
+            >
+              <MessageSquare className="w-3.5 h-3.5" /> 訊息卡片
+            </button>
+            <button 
+              onClick={() => setShowAddProduct(true)}
+              className="text-[11px] text-green-600 font-bold bg-green-50 px-3 py-1.5 rounded-lg border border-green-200 flex items-center gap-1 hover:bg-green-100 transition-colors"
+            >
+              <PlusCircle className="w-3.5 h-3.5" /> 新增商品
+            </button>
+          </div>
           <button onClick={() => setSortMode(!sortMode)} className={`px-3 py-1.5 rounded-lg text-[12px] font-bold transition-all flex items-center gap-1 ${sortMode ? 'bg-blue-100 text-blue-600 border border-blue-200' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
             <Menu className="w-3.5 h-3.5" /> {sortMode ? '完成排序' : '排序'}
           </button>
+        </div>
+      )}
+
+      {/* 新增商品彈窗 */}
+      {showAddProduct && (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-6 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border-2 border-green-200">
+            <h3 className="text-green-700 font-black text-[16px] flex items-center gap-2 mb-4"><PlusCircle className="w-5 h-5" /> 新增商品</h3>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const fd = new FormData(e.target);
+              const name = fd.get('name').trim();
+              const category = fd.get('category');
+              const unit = fd.get('unit');
+              if (!name) { showToast('請輸入商品名稱', 'error'); return; }
+              if (products.some(p => p.name === name)) { showToast('商品名稱已存在', 'error'); return; }
+              const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+              const newProduct = {
+                id, name, category, unit,
+                code: '', tag: '', unitMajor: '', orderUnit: '', safetyUnit: '',
+                defaultPar: 0, defaultParHoliday: 0,
+                defaultReorderQty: 0, defaultReorderUnit: '',
+                includeInUseQty: false, suspended: false,
+                order: products.length + 1
+              };
+              await setDoc(doc(db, 'artifacts', appId, 'public', 'data', DB_PRODUCTS, id), newProduct);
+              showToast(`已新增商品「${name}」到「${formatCategory(category)}」`);
+              setShowAddProduct(false);
+            }} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">商品名稱</label>
+                <input required name="name" placeholder="輸入商品名稱" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-bold text-slate-800 outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">所屬分類</label>
+                <select required name="category" defaultValue={activeCategory} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-green-500">
+                  {categories.map(c => <option key={c} value={c}>{formatCategory(c)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-500 mb-1 block">盤點單位</label>
+                <select required name="unit" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-[15px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-green-500">
+                  {(systemOptions.units || []).map((u, i) => { const n = typeof u === 'string' ? u : u.name; return <option key={i} value={n}>{n}</option>; })}
+                </select>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setShowAddProduct(false)} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl">取消</button>
+                <button type="submit" className="flex-1 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-md">新增</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
